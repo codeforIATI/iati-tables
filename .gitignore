@@ -1,0 +1,13 @@
+*.egg-info
+*.pyc
+*.swp
+*.mo
+__iatikitcache__/
+.vscode
+.cache
+.coverage
+.coverage.*
+.ve
+__pycache__
+docs/_build
+.~lock*

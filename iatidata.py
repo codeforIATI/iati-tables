@@ -1,0 +1,480 @@
+import xmlschema
+import json
+import os
+import sqlalchemy as sa
+import tempfile
+import functools
+import datetime
+import subprocess
+from textwrap import dedent
+
+import iatikit
+import pathlib
+from collections import defaultdict
+from lxml import etree
+
+import concurrent.futures
+import csv
+import gzip
+
+this_dir = pathlib.Path(__file__).parent.resolve()
+
+def get_engine(schema=None, db_uri=None, pool_size=1):
+    if not db_uri:
+        db_uri = os.environ["DATABASE_URL"]
+
+    connect_args = {}
+    if schema:
+        connect_args = {"options": f"-csearch_path={schema}"}
+
+    return sa.create_engine(db_uri, pool_size=pool_size, connect_args=connect_args)
+
+
+def create_table(table, sql, **params):
+
+    engine = get_engine()
+    with engine.connect() as con:
+        con.execute(
+            sa.text(
+                f"""DROP TABLE IF EXISTS {table};
+                    CREATE TABLE {table}
+                    AS
+                    {sql};"""
+            ),
+            **params,
+        )
+
+
+def create_activites_table():
+    print("creating activities table")
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(
+            """DROP TABLE IF EXISTS _all_activities;
+               CREATE TABLE _all_activities(id SERIAL, prefix TEXT, filename TEXT, error TEXT, version TEXT, activity JSONB);
+            """
+        )
+
+
+def get_registry(data=False, standard=False):
+
+    if not (this_dir / '__iatikitcache__').is_dir() or standard:
+        print("getting standard")
+        iatikit.download.standard()
+
+    if data:
+        print("getting regisitry data")
+        iatikit.download.data()
+
+    return iatikit.data()
+
+
+def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=None):
+
+    transform = etree.XSLT(etree.parse(str(this_dir / 'iati-activities.xsl')))
+    schema = xmlschema.XMLSchema(str(this_dir / '__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd'))
+
+    for activity in dataset_etree.findall('iati-activity'):
+
+        version = dataset_etree.getroot().get('version', '1.01')
+
+        activities = etree.Element("iati-activities", version=version)
+        activities.append(activity)
+
+        if version.startswith('1'):
+            activities = transform(activities)
+
+        activity, error = xmlschema.to_dict(activities, schema=schema, validation='lax', decimal_type=float)
+
+        activity = activity.get('iati-activity', [{}])[0]
+
+        csv_file.writerow([prefix, filename, str(error) if error else '', version, json.dumps(activity)])
+
+
+def csv_file_to_db(csv_fd):
+    engine = get_engine()
+    with engine.begin() as connection:
+        dbapi_conn = connection.connection
+        copy_sql = "COPY _all_activities(prefix, filename, error, version, activity)  FROM STDIN WITH CSV"
+        cur = dbapi_conn.cursor()
+        cur.copy_expert(copy_sql, csv_fd)
+
+
+def save_part(data):
+    engine = get_engine()
+    bucket_num, datasets = data
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        print(bucket_num, tmpdirname)
+        with gzip.open(f'{tmpdirname}/out.csv.gz', "wt", newline="") as f:
+            csv_file = csv.writer(f)
+
+            for num, dataset in enumerate(datasets):
+                if num % 100 == 0:
+                    print(bucket_num, num, flush=True)
+
+                if dataset.filetype != 'activity':
+                    continue
+
+                if not dataset.data_path:
+                    print(dataset, 'not found')
+                    continue
+
+                path = pathlib.Path(dataset.data_path)
+                prefix, filename = path.parts[-2:]
+
+                save_converted_xml_to_csv(dataset.etree, csv_file, prefix, filename)
+
+        with gzip.open(f'{tmpdirname}/out.csv.gz', "rt") as f:
+            csv_file_to_db(f)
+
+    return bucket_num
+
+
+def save_all(parts=5, download=False):
+
+    create_activites_table()
+
+    registry = get_registry(download, download)
+
+    buckets = defaultdict(list)
+    for num, dataset in enumerate(registry.datasets):
+        buckets[num % parts].append(dataset)
+        if num > 50:
+            break
+
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        for job in executor.map(save_part, buckets.items()):
+            print('DONE {job}')
+            continue
+
+
+def process_all():
+    save_all()
+    activity_objects()
+    schema_analysis()
+    postgres_tables()
+
+
+def process_activities_etree(activities, name):
+    create_activites_table()
+
+    registry = get_registry()
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        with gzip.open(f'{tmpdirname}/out.csv.gz', "wt", newline="") as f:
+            csv_file = csv.writer(f)
+            save_converted_xml_to_csv(activities.etree, csv_file, name, name)
+
+    with gzip.open(f'{tmpdirname}/out.csv.gz', "rt") as f:
+        csv_file_to_db(f)
+
+    activity_objects()
+    schema_analysis()
+    postgres_tables()
+
+
+def flatten_object(obj, current_path=""):
+    for key, value in list(obj.items()):
+        key = key.replace('-', '')
+        key = key.replace('@{http://www.w3.org/XML/1998/namespace}', '')
+        key = key.replace('@', '')
+        if isinstance(value, dict):
+            yield from flatten_object(value, f"{current_path}{key}_")
+        else:
+            if key == '$':
+                yield f"{current_path}"[:-1], value
+            else:
+                yield f"{current_path}{key}", value
+
+@functools.lru_cache(1000)
+def path_info(full_path, no_index_path):
+    all_paths = []
+    for num, part in enumerate(full_path):
+        if isinstance(part, int):
+            all_paths.append(full_path[: num + 1])
+
+    parent_paths = all_paths[:-1]
+    path_key = all_paths[-1] if all_paths else []
+
+    object_key = ".".join(str(key) for key in path_key)
+    parent_keys_list = [
+        ".".join(str(key) for key in parent_path) for parent_path in parent_paths
+    ]
+    parent_keys_no_index = [
+        "_".join(str(key) for key in parent_path if not isinstance(key, int))
+        for parent_path in parent_paths
+    ]
+    object_type = "_".join(str(key) for key in no_index_path) or "activity"
+    parent_keys = (dict(zip(parent_keys_no_index, parent_keys_list)),)
+    return object_key, parent_keys_list, parent_keys_no_index, object_type, parent_keys
+
+
+def traverse_object(obj, emit_object, full_path=tuple(), no_index_path=tuple()):
+    for original_key, value in list(obj.items()):
+        key = original_key.replace('-', '')
+
+        if key == 'narrative':
+            narratives = []
+            for narrative in value:
+                if not narrative:
+                    continue
+                if isinstance(narrative, dict):
+                    lang = narrative.get('@{http://www.w3.org/XML/1998/namespace}lang', '')
+                    narrative = f"{lang.upper()}: {narrative.get('$', '')}"
+                narratives.append(narrative)
+            obj['narrative'] = ", ".join(narratives)
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
+            for num, item in enumerate(value):
+                if not isinstance(item, dict):
+                    item = {"__error": "A non object is in array of objects"}
+                yield from traverse_object(
+                    item, True, full_path + (key, num), no_index_path + (key,)
+                )
+            obj.pop(original_key)
+        elif isinstance(value, list):
+            if not all(isinstance(item, str) for item in value):
+                obj[key] = json.dumps(value)
+        elif isinstance(value, dict):
+             yield from traverse_object(
+                 value, False, full_path + (key,), no_index_path + (key,)
+             )
+
+    if obj and emit_object:
+        new_object = {key.replace('-', ''): value for key, value in obj.items()}
+        yield new_object, full_path, no_index_path
+
+
+def create_rows(result):
+    rows = []
+
+    if result.activity is None:
+        return []
+
+    for object, full_path, no_index_path in traverse_object(result.activity, 1):
+
+        (
+            object_key,
+            parent_keys_list,
+            parent_keys_no_index,
+            object_type,
+            parent_keys,
+        ) = path_info(full_path, no_index_path)
+
+        object[
+            "_link"
+        ] = f'{result.id}{"." if object_key else ""}{object_key}'
+        object["_link_activity"] = str(result.id)
+        for no_index_path, full_path in zip(parent_keys_no_index, parent_keys_list):
+            object[
+                f"_link_{no_index_path}"
+            ] = f"{result.id}.{full_path}"
+
+        row = dict(
+            id=result.id,
+            prefix=result.prefix,
+            object_key=object_key,
+            parent_keys=parent_keys,
+            object_type=object_type,
+            object=object,
+        )
+        rows.append(row)
+
+
+    for row in rows:
+        object = row["object"]
+        row["object"] = json.dumps(dict(flatten_object(object)))
+        row["parent_keys"] = json.dumps(row["parent_keys"])
+
+    return [list(row.values()) for row in rows]
+
+
+def activity_objects():
+    print("generating activity_objects")
+    engine = get_engine()
+    engine.execute(
+        """
+        DROP TABLE IF EXISTS _activity_objects;
+        CREATE TABLE _activity_objects(id bigint, prefix TEXT,
+        object_key TEXT, parent_keys JSONB, object_type TEXT, object JSONB);
+        """
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        with engine.begin() as connection:
+            connection = connection.execution_options(stream_results=True, max_row_buffer=1000)
+            results = connection.execute(
+                "SELECT id, prefix, activity FROM _all_activities"
+            )
+            paths_csv_file = tmpdirname + "/paths.csv"
+
+            print("Making CSV file")
+            with gzip.open(paths_csv_file, "wt", newline="") as csv_file:
+                csv_writer = csv.writer(csv_file)
+                for num, result in enumerate(results):
+                    if num % 10000 == 0:
+                        print(str(datetime.datetime.utcnow()), num)
+                    csv_writer.writerows(create_rows(result))
+
+        print("Uploading Data")
+        with engine.begin() as connection, gzip.open(
+            paths_csv_file, "rt"
+        ) as f:
+            dbapi_conn = connection.connection
+            copy_sql = "COPY _activity_objects FROM STDIN WITH CSV"
+            cur = dbapi_conn.cursor()
+            cur.copy_expert(copy_sql, f)
+
+
+DATE_RE = r'^(\d{4})-(\d{2})-(\d{2})([T ](\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d{2}):(\d{2})|Z)?))?$'
+
+
+def schema_analysis():
+    print("doing schema analysis")
+    create_table(
+        "_object_type_aggregate",
+        f"""SELECT
+              object_type,
+              each.key,
+              CASE
+                 WHEN jsonb_typeof(value) != 'string'
+                     THEN jsonb_typeof(value)
+                 WHEN (value ->> 0) ~ '{DATE_RE}'
+                     THEN 'datetime'
+                 ELSE 'string'
+              END value_type,
+              count(*)
+           FROM
+              _activity_objects ro, jsonb_each(object) each
+           GROUP BY 1,2,3;
+        """,
+    )
+
+    create_table(
+        "_object_type_fields",
+        """SELECT
+              object_type,
+              key,
+              CASE WHEN
+                  count(*) > 1
+              THEN 'string'
+              ELSE max(value_type) end value_type,
+              SUM("count") AS "count"
+           FROM
+              _object_type_aggregate
+           WHERE
+              value_type != 'null'
+           GROUP BY 1,2;
+        """,
+    )
+
+
+
+def create_field_sql(object_details, sqlite=False):
+    fields = []
+    lowered_fields = set()
+    fields_with_type = []
+    for num, item in enumerate(object_details):
+        name = item["name"]
+
+        if sqlite and name.lower() in lowered_fields:
+            name = f'"{name}_{num}"'
+
+        type = item["type"]
+        if type == "number":
+            field = f'"{name}" numeric'
+        elif type == "array":
+            field = f'"{name}" JSONB'
+        elif type == "boolean":
+            field = f'"{name}" boolean'
+        elif type == "datetime":
+            field = f'"{name}" timestamp'
+        else:
+            field = f'"{name}" TEXT'
+
+        lowered_fields.add(name.lower())
+        fields.append(f'"{name}"')
+        fields_with_type.append(field)
+
+    return ", ".join(sorted(fields)), ", ".join(sorted(fields_with_type))
+
+
+def postgres_tables(drop_release_objects=False):
+    print("making postgres tables")
+    object_details = defaultdict(list)
+    with get_engine().begin() as connection:
+        result = list(
+            connection.execute(
+                "SELECT object_type, key, value_type FROM _object_type_fields"
+            )
+        )
+        for row in result:
+            object_details[row.object_type].append(dict(name=row.key,
+                                                    type=row.value_type))
+
+
+    for object_type, object_detail in object_details.items():
+        field_sql, as_sql = create_field_sql(object_detail)
+        table_sql = f"""
+           SELECT prefix, {field_sql}
+           FROM _activity_objects, jsonb_to_record(object) AS ({as_sql})
+           WHERE object_type = :object_type
+        """
+        create_table(object_type, table_sql, object_type=object_type)
+
+    if drop_release_objects:
+        with get_engine().begin() as connection:
+            connection.execute("DROP TABLE IF EXISTS _release_objects")
+
+
+def export_sqlite():
+    sqlite_file = this_dir / 'iati.sqlite'
+    if sqlite_file.is_file():
+        sqlite_file.unlink()
+
+    object_details = defaultdict(list)
+    with tempfile.TemporaryDirectory() as tmpdirname, get_engine().begin() as connection:
+        result = list(
+            connection.execute(
+                "SELECT object_type, key, value_type FROM _object_type_fields"
+            )
+        )
+        for row in result:
+            object_details[row.object_type].append(dict(name=row.key,
+                                                   type=row.value_type))
+
+        for object_type, object_details in object_details.items():
+            print(f"importing table {object_type}")
+            with open(f"{tmpdirname}/{object_type}.csv", "wb") as out:
+                dbapi_conn = connection.connection
+                copy_sql = f'COPY "{object_type.lower()}" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
+                cur = dbapi_conn.cursor()
+                cur.copy_expert(copy_sql, out)
+
+            _, field_def = create_field_sql(object_details, sqlite=True)
+
+            target_object_type = object_type
+            if object_type == 'transaction':
+                target_object_type = 'trans'
+
+            import_sql = f"""
+            .mode csv
+            CREATE TABLE "{target_object_type}" ({field_def}) ;
+            .import '{tmpdirname}/{object_type}.csv' "{target_object_type}" """
+
+            print(import_sql)
+
+            subprocess.run(
+                ["sqlite3", f"{sqlite_file}"],
+                input=dedent(import_sql),
+                text=True,
+                check=True,
+            )
+
+            os.remove(f"{tmpdirname}/{object_type}.csv")
+
+        subprocess.run(
+            ["gzip", "-k", "-9", f"{sqlite_file}"],
+            check=True
+        )
+

@@ -56,13 +56,15 @@ def create_activites_table():
         )
 
 
-def get_registry(data=False, standard=False):
-
-    if not (this_dir / '__iatikitcache__').is_dir() or standard:
+def get_standard(refresh=False):
+    if not (pathlib.Path() / '__iatikitcache__').is_dir() or refresh:
         print("getting standard")
         iatikit.download.standard()
 
-    if data:
+
+def get_registry(refresh=False):
+
+    if not (pathlib.Path() / '__iatikitcache__').is_dir() or refresh:
         print("getting regisitry data")
         iatikit.download.data()
 
@@ -72,11 +74,11 @@ def get_registry(data=False, standard=False):
 def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=None):
 
     transform = etree.XSLT(etree.parse(str(this_dir / 'iati-activities.xsl')))
-    schema = xmlschema.XMLSchema(str(this_dir / '__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd'))
+    schema = xmlschema.XMLSchema(str(pathlib.Path() / '__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd'))
 
     for activity in dataset_etree.findall('iati-activity'):
 
-        version = dataset_etree.getroot().get('version', '1.01')
+        version = dataset_etree.get('version', '1.01')
 
         activities = etree.Element("iati-activities", version=version)
         activities.append(activity)
@@ -123,7 +125,13 @@ def save_part(data):
                 path = pathlib.Path(dataset.data_path)
                 prefix, filename = path.parts[-2:]
 
-                save_converted_xml_to_csv(dataset.etree, csv_file, prefix, filename)
+                try:
+                    root = dataset.etree.getroot()
+                except Exception as e:
+                    print('Error parsing XML', e)
+                    continue
+
+                save_converted_xml_to_csv(root, csv_file, prefix, filename)
 
         with gzip.open(f'{tmpdirname}/out.csv.gz', "rt") as f:
             csv_file_to_db(f)
@@ -131,17 +139,16 @@ def save_part(data):
     return bucket_num
 
 
-def save_all(parts=5, download=False):
+def save_all(parts=5, refresh=False):
 
     create_activites_table()
 
-    registry = get_registry(download, download)
+    get_standard(refresh)
+    registry = get_registry(refresh)
 
     buckets = defaultdict(list)
     for num, dataset in enumerate(registry.datasets):
         buckets[num % parts].append(dataset)
-        if num > 50:
-            break
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for job in executor.map(save_part, buckets.items()):
@@ -149,25 +156,26 @@ def save_all(parts=5, download=False):
             continue
 
 
-def process_all():
+def process_registry():
     save_all()
     activity_objects()
     schema_analysis()
     postgres_tables()
 
 
-def process_activities_etree(activities, name):
+def process_activities(activities, name):
     create_activites_table()
 
-    registry = get_registry()
+    get_standard()
 
     with tempfile.TemporaryDirectory() as tmpdirname:
+        print("converting to json")
         with gzip.open(f'{tmpdirname}/out.csv.gz', "wt", newline="") as f:
             csv_file = csv.writer(f)
-            save_converted_xml_to_csv(activities.etree, csv_file, name, name)
+            save_converted_xml_to_csv(activities, csv_file, name, name)
 
-    with gzip.open(f'{tmpdirname}/out.csv.gz', "rt") as f:
-        csv_file_to_db(f)
+        with gzip.open(f'{tmpdirname}/out.csv.gz', "rt") as f:
+            csv_file_to_db(f)
 
     activity_objects()
     schema_analysis()
@@ -183,7 +191,10 @@ def flatten_object(obj, current_path=""):
             yield from flatten_object(value, f"{current_path}{key}_")
         else:
             if key == '$':
-                yield f"{current_path}"[:-1], value
+                if current_path:
+                    yield f"{current_path}"[:-1], value
+                else:
+                    yield '_', value
             else:
                 yield f"{current_path}{key}", value
 
@@ -459,7 +470,7 @@ def export_sqlite():
 
             import_sql = f"""
             .mode csv
-            CREATE TABLE "{target_object_type}" ({field_def}) ;
+            CREATE TABLE "{target_object_type}" (prefix, {field_def}) ;
             .import '{tmpdirname}/{object_type}.csv' "{target_object_type}" """
 
             print(import_sql)

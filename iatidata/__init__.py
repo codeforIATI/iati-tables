@@ -80,6 +80,12 @@ class IATISchemaWalker(sort_iati.IATISchemaWalker):
         self.tree2 = etree.parse(str(pathlib.Path() / '__iatikitcache__/standard/schemas/203/iati-common.xsd'))
 
 
+def get_schema_docs():
+    schema_docs = IATISchemaWalker().create_schema_docs('iati-activity')
+    print(json.dumps(schema_docs, indent=2))
+    return schema_docs
+
+
 def get_sorted_schema_dict():
     schema_dict = IATISchemaWalker().create_schema_dict('iati-activity')
     return schema_dict
@@ -455,6 +461,17 @@ def schema_analysis():
            GROUP BY 1,2;
         """,
     )
+
+
+    engine = get_engine()
+    with engine.begin() as connection:
+        results = connection.execute(
+            "SELECT object_type, key, value_type, count FROM _all_activities"
+        )
+
+        for object_type, key, value_type, count in results:
+            continue
+
 
 
 

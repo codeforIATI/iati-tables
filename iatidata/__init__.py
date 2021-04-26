@@ -170,7 +170,7 @@ def save_part(data):
     return bucket_num
 
 
-def save_all(parts=5, sample=100, refresh=False):
+def save_all(parts=5, sample=None, refresh=False):
 
     create_activites_table()
 
@@ -189,7 +189,7 @@ def save_all(parts=5, sample=100, refresh=False):
             continue
 
 
-def process_registry(processes=5, sample=100, refresh=False):
+def process_registry(processes=5, sample=None, refresh=False):
     save_all(sample=sample, parts=processes, refresh=refresh)
     activity_objects()
     schema_analysis()

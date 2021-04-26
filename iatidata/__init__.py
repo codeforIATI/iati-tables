@@ -17,6 +17,8 @@ import concurrent.futures
 import csv
 import gzip
 
+from iatidata import sort_iati
+
 this_dir = pathlib.Path(__file__).parent.resolve()
 
 def get_engine(schema=None, db_uri=None, pool_size=1):
@@ -70,6 +72,40 @@ def get_registry(refresh=False):
 
     return iatikit.data()
 
+
+class IATISchemaWalker(sort_iati.IATISchemaWalker):
+
+    def __init__(self):
+        self.tree = etree.parse(str(pathlib.Path() / '__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd'))
+        self.tree2 = etree.parse(str(pathlib.Path() / '__iatikitcache__/standard/schemas/203/iati-common.xsd'))
+
+
+def get_sorted_schema_dict():
+    schema_dict = IATISchemaWalker().create_schema_dict('iati-activity')
+    return schema_dict
+
+
+def sort_iati_element(element, schema_subdict):
+    """
+    Sort the given elements children according to the order of schema_subdict.
+    """
+    def sort(x):
+        try:
+            return list(schema_subdict.keys()).index(x.tag)
+        except ValueError:
+            # make sure non schema elements go to the end
+            return 9999
+
+    children = list(element)
+    for child in children:
+        element.remove(child)
+    for child in sorted(children, key=sort):
+        element.append(child)
+        subdict = schema_subdict.get(child.tag)
+        if subdict:
+            sort_iati_element(child, subdict)
+
+
 ALL_CODELIST_LOOKUP = {}
 
 def get_codelists_lookup():
@@ -107,15 +143,18 @@ def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=Non
     transform = etree.XSLT(etree.parse(str(this_dir / 'iati-activities.xsl')))
     schema = xmlschema.XMLSchema(str(pathlib.Path() / '__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd'))
 
-    for activity in dataset_etree.findall('iati-activity'):
+    schama_dict = get_sorted_schema_dict()
 
+    for activity in dataset_etree.findall('iati-activity'):
         version = dataset_etree.get('version', '1.01')
 
         activities = etree.Element("iati-activities", version=version)
         activities.append(activity)
 
         if version.startswith('1'):
-            activities = transform(activities)
+            activities = transform(activities).getroot()
+
+        sort_iati_element(activities.getchildren()[0], schama_dict)
 
         activity, error = xmlschema.to_dict(activities, schema=schema, validation='lax', decimal_type=float)
 

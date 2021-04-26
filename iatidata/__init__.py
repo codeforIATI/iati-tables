@@ -70,6 +70,37 @@ def get_registry(refresh=False):
 
     return iatikit.data()
 
+ALL_CODELIST_LOOKUP = {}
+
+def get_codelists_lookup():
+    mapping_file = pathlib.Path() / '__iatikitcache__/standard/codelist_mappings/203/activity-mappings.json'
+    mappings_list = json.loads(mapping_file.read_text())
+
+    mappings = defaultdict(list)
+
+    for mapping in mappings_list:
+        path = tuple(mapping['path'][16:].replace('-', '').split('/'))
+        mappings[mapping['codelist']].append(path)
+
+    mappings.pop('Version')
+
+    codelists_dir = pathlib.Path() / '__iatikitcache__/standard/codelists'
+
+    for codelist_file in codelists_dir.glob('*.json'):
+        codelist = json.loads(codelist_file.read_text())
+        attributes = codelist.get('attributes')
+        data = codelist.get('data')
+        if not attributes or not data:
+            continue
+
+        codelist_name = attributes['name']
+        paths = mappings[codelist_name]
+
+        for path in paths:
+            for codelist_value, info in data.items():
+                value_name = info.get('name', codelist_value)
+                ALL_CODELIST_LOOKUP[(path, codelist_value)] = value_name
+
 
 def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=None):
 
@@ -139,7 +170,7 @@ def save_part(data):
     return bucket_num
 
 
-def save_all(parts=5, refresh=False):
+def save_all(parts=5, sample=100, refresh=False):
 
     create_activites_table()
 
@@ -149,6 +180,8 @@ def save_all(parts=5, refresh=False):
     buckets = defaultdict(list)
     for num, dataset in enumerate(registry.datasets):
         buckets[num % parts].append(dataset)
+        if sample and num > sample:
+            break
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for job in executor.map(save_part, buckets.items()):
@@ -156,8 +189,8 @@ def save_all(parts=5, refresh=False):
             continue
 
 
-def process_registry():
-    save_all()
+def process_registry(processes=5, sample=100, refresh=False):
+    save_all(sample=sample, parts=processes, refresh=refresh)
     activity_objects()
     schema_analysis()
     postgres_tables()
@@ -182,14 +215,21 @@ def process_activities(activities, name):
     postgres_tables()
 
 
-def flatten_object(obj, current_path=""):
+def flatten_object(obj, current_path="", no_index_path=tuple()):
     for key, value in list(obj.items()):
+        new_no_index_path = no_index_path + (key,)
+
         key = key.replace('-', '')
         key = key.replace('@{http://www.w3.org/XML/1998/namespace}', '')
         key = key.replace('@', '')
         if isinstance(value, dict):
-            yield from flatten_object(value, f"{current_path}{key}_")
+            yield from flatten_object(value, f"{current_path}{key}_", new_no_index_path)
         else:
+            if isinstance(value, str):
+                codelist_value_name = ALL_CODELIST_LOOKUP.get((new_no_index_path, value))
+                if codelist_value_name:
+                    yield f"{current_path}{key}name", codelist_value_name
+
             if key == '$':
                 if current_path:
                     yield f"{current_path}"[:-1], value
@@ -197,6 +237,7 @@ def flatten_object(obj, current_path=""):
                     yield '_', value
             else:
                 yield f"{current_path}{key}", value
+
 
 @functools.lru_cache(1000)
 def path_info(full_path, no_index_path):
@@ -276,32 +317,29 @@ def create_rows(result):
             "_link"
         ] = f'{result.id}{"." if object_key else ""}{object_key}'
         object["_link_activity"] = str(result.id)
-        for no_index_path, full_path in zip(parent_keys_no_index, parent_keys_list):
+        for no_index, full in zip(parent_keys_no_index, parent_keys_list):
             object[
-                f"_link_{no_index_path}"
-            ] = f"{result.id}.{full_path}"
+                f"_link_{no_index}"
+            ] = f"{result.id}.{full}"
 
         row = dict(
             id=result.id,
             prefix=result.prefix,
             object_key=object_key,
-            parent_keys=parent_keys,
+            parent_keys=json.dumps(parent_keys),
             object_type=object_type,
-            object=object,
+            object=json.dumps(dict(flatten_object(object, no_index_path=no_index_path))),
         )
         rows.append(row)
-
-
-    for row in rows:
-        object = row["object"]
-        row["object"] = json.dumps(dict(flatten_object(object)))
-        row["parent_keys"] = json.dumps(row["parent_keys"])
 
     return [list(row.values()) for row in rows]
 
 
 def activity_objects():
     print("generating activity_objects")
+
+    get_codelists_lookup()
+
     engine = get_engine()
     engine.execute(
         """

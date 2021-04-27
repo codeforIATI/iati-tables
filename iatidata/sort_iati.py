@@ -112,10 +112,10 @@ class IATISchemaWalker(object):
         element in the IATI schema.
         """
         def process_element(name, element):
-            if not element:
+            if element is None:
                 element = self.get_schema_element('element', name) 
 
-            if not element:
+            if element is None:
                 return {} 
             else:
                 info = dict(element.attrib)
@@ -131,7 +131,7 @@ class IATISchemaWalker(object):
 
 
                 new_element = self.get_schema_element('complexType', info.get('type')) 
-                if new_element:
+                if new_element is not None:
                     element = new_element
 
 

@@ -73,6 +73,18 @@ def get_registry(refresh=False):
     return iatikit.data()
 
 
+def flatten_schema_docs(cur, path=''):
+
+    for field, value in cur.items():
+        info = value.get('info')
+        docs = info.get('docs', '')
+        yield f'{path}{field}', docs
+        for attribute, attribute_docs in info.get('attributes', {}).items():
+            yield f'{path}{field}_{attribute}', attribute_docs
+
+        yield from flatten_schema_docs(value.get('properties', {}), f'{path}{field}_')
+
+
 class IATISchemaWalker(sort_iati.IATISchemaWalker):
 
     def __init__(self):
@@ -82,8 +94,13 @@ class IATISchemaWalker(sort_iati.IATISchemaWalker):
 
 def get_schema_docs():
     schema_docs = IATISchemaWalker().create_schema_docs('iati-activity')
-    print(json.dumps(schema_docs, indent=2))
-    return schema_docs
+
+    schema_docs_lookup = {}
+    for num, (field, doc) in enumerate(flatten_schema_docs(schema_docs)):
+        field = field.replace('-', '')
+        schema_docs_lookup[field] = [num, doc]
+
+    return schema_docs_lookup
 
 
 def get_sorted_schema_dict():
@@ -462,15 +479,41 @@ def schema_analysis():
         """,
     )
 
+    schema_lookup = get_schema_docs()
 
     engine = get_engine()
     with engine.begin() as connection:
+        connection.execute('''
+            drop table if exists _fields;
+            create table _fields (table_name TEXT, field TEXT, type TEXT, count INT, docs TEXT, field_order INT)
+        ''')
+
         results = connection.execute(
-            "SELECT object_type, key, value_type, count FROM _all_activities"
+            "SELECT object_type, key, value_type, count FROM _object_type_fields"
         )
 
         for object_type, key, value_type, count in results:
-            continue
+
+            order, docs = 9999, ''
+
+            if object_type == 'activity':
+                path = key
+            else:
+                path = object_type + '_' + key
+            if key.startswith('_link'):
+                order = 0
+                docs = '_link field'
+            else:
+                order, docs = schema_lookup.get(path, [9999, ''])
+                if not docs:
+                    if key.endswith('name'):
+                        order, docs = schema_lookup.get(path[:-4], [9999, ''])
+
+            connection.execute('insert into _fields values (%s, %s, %s, %s,  %s, %s)',
+                                object_type, key, value_type, count, docs, order)
+
+    create_table('_tables', 'SELECT table_name, min(field_order) table_order, max("count") as rows  FROM _fields WHERE field_order <> 0 GROUP BY table_name')
+        
 
 
 

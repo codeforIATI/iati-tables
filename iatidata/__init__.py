@@ -573,7 +573,7 @@ def postgres_tables(drop_release_objects=False):
 
 
 def export_sqlite():
-    sqlite_file = this_dir / 'iati.sqlite'
+    sqlite_file = pathlib.Path() / 'iati.sqlite'
     if sqlite_file.is_file():
         sqlite_file.unlink()
 
@@ -617,6 +617,27 @@ def export_sqlite():
             )
 
             os.remove(f"{tmpdirname}/{object_type}.csv")
+
+
+        with open(f"{tmpdirname}/fields.csv", "w") as csv_file:
+
+            dbapi_conn = connection.connection
+            copy_sql = f'COPY "_fields" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
+            cur = dbapi_conn.cursor()
+            cur.copy_expert(copy_sql, csv_file)
+
+        import_sql = f"""
+            .mode csv
+            CREATE TABLE _fields (table_name TEXT, field TEXT, type TEXT, count INT, docs TEXT, field_order INT);
+            .import {tmpdirname}/fields.csv "_fields" """
+
+        subprocess.run(
+            ["sqlite3", f"{sqlite_file}"],
+            input=dedent(import_sql),
+            text=True,
+            check=True,
+        )
+
 
         subprocess.run(
             ["gzip", "-k", "-9", f"{sqlite_file}"],

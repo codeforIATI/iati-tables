@@ -98,7 +98,7 @@ def get_schema_docs():
     schema_docs_lookup = {}
     for num, (field, doc) in enumerate(flatten_schema_docs(schema_docs)):
         field = field.replace('-', '')
-        schema_docs_lookup[field] = [num, doc]
+        schema_docs_lookup[field] = [num + 1, doc]
 
     return schema_docs_lookup
 
@@ -515,9 +515,6 @@ def schema_analysis():
     create_table('_tables', 'SELECT table_name, min(field_order) table_order, max("count") as rows  FROM _fields WHERE field_order <> 0 GROUP BY table_name')
         
 
-
-
-
 def create_field_sql(object_details, sqlite=False):
     fields = []
     lowered_fields = set()
@@ -544,7 +541,7 @@ def create_field_sql(object_details, sqlite=False):
         fields.append(f'"{name}"')
         fields_with_type.append(field)
 
-    return ", ".join(sorted(fields)), ", ".join(sorted(fields_with_type))
+    return ", ".join(fields), ", ".join(fields_with_type)
 
 
 def postgres_tables(drop_release_objects=False):
@@ -553,12 +550,12 @@ def postgres_tables(drop_release_objects=False):
     with get_engine().begin() as connection:
         result = list(
             connection.execute(
-                "SELECT object_type, key, value_type FROM _object_type_fields"
+                "SELECT table_name, field, type FROM _fields order by field_order"
             )
         )
         for row in result:
-            object_details[row.object_type].append(dict(name=row.key,
-                                                    type=row.value_type))
+            object_details[row.table_name].append(dict(name=row.field,
+                                                  type=row.type))
 
 
     for object_type, object_detail in object_details.items():
@@ -584,12 +581,12 @@ def export_sqlite():
     with tempfile.TemporaryDirectory() as tmpdirname, get_engine().begin() as connection:
         result = list(
             connection.execute(
-                "SELECT object_type, key, value_type FROM _object_type_fields"
+                "SELECT table_name, field, type FROM _fields order by field_order"
             )
         )
         for row in result:
-            object_details[row.object_type].append(dict(name=row.key,
-                                                   type=row.value_type))
+            object_details[row.table_name].append(dict(name=row.field,
+                                                  type=row.type))
 
         for object_type, object_details in object_details.items():
             print(f"importing table {object_type}")

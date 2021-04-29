@@ -579,7 +579,6 @@ def postgres_tables(drop_release_objects=False):
 
 def augment_transaction():
 
-
     with get_engine().begin() as connection:
         connection.execute('''
             drop table if exists _exchange_rates;
@@ -601,7 +600,7 @@ def augment_transaction():
         _create_table('tmp_transaction_usd', connection, 
             '''
             select 
-               t._link, case when coalesce(value_currency, activity.defaultcurrency) = 'USD' then value else value * rate end value_usd 
+               t._link, case when coalesce(value_currency, activity.defaultcurrency) = 'USD' then value else value / rate end value_usd 
             from 
                transaction t 
             join

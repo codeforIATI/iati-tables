@@ -7,7 +7,9 @@ import functools
 import datetime
 import subprocess
 from textwrap import dedent
+from io import StringIO
 
+import requests
 import iatikit
 import pathlib
 from collections import defaultdict
@@ -32,19 +34,22 @@ def get_engine(schema=None, db_uri=None, pool_size=1):
     return sa.create_engine(db_uri, pool_size=pool_size, connect_args=connect_args)
 
 
-def create_table(table, sql, **params):
+def _create_table(table, con, sql, **params):
+    con.execute(
+        sa.text(
+            f"""DROP TABLE IF EXISTS {table};
+                CREATE TABLE {table}
+                AS
+                {sql};"""
+        ),
+        **params,
+    )
 
+def create_table(table, sql, **params):
     engine = get_engine()
     with engine.connect() as con:
-        con.execute(
-            sa.text(
-                f"""DROP TABLE IF EXISTS {table};
-                    CREATE TABLE {table}
-                    AS
-                    {sql};"""
-            ),
-            **params,
-        )
+        _create_table(table, con, sql, **params)
+
 
 
 def create_activites_table():
@@ -570,6 +575,84 @@ def postgres_tables(drop_release_objects=False):
     if drop_release_objects:
         with get_engine().begin() as connection:
             connection.execute("DROP TABLE IF EXISTS _release_objects")
+
+
+def augment_transaction():
+
+
+    with get_engine().begin() as connection:
+        connection.execute('''
+            drop table if exists _exchange_rates;
+            create table _exchange_rates(date text,rate float,Currency text, frequency text, source text, country_code text, country text);
+        ''')
+
+        r = requests.get('https://raw.githubusercontent.com/codeforIATI/imf-exchangerates/gh-pages/imf_exchangerates.csv', stream=True)
+        f = StringIO(r.text)
+        dbapi_conn = connection.connection
+        copy_sql = f'COPY _exchange_rates FROM STDIN WITH (FORMAT CSV, HEADER)'
+        cur = dbapi_conn.cursor()
+        cur.copy_expert(copy_sql, f)
+
+        connection.execute('''
+            drop table if exists _monthly_currency;
+            create table _monthly_currency as select distinct on (substring(date, 1,7), currency) substring(date, 1,7) yearmonth, rate, currency from _exchange_rates;
+        ''')
+
+        _create_table('tmp_transaction_usd', connection, 
+            '''
+            select 
+               t._link, case when coalesce(value_currency, activity.defaultcurrency) = 'USD' then value else value * rate end value_usd 
+            from 
+               transaction t 
+            join
+               activity using (_link_activity)
+            left join 
+               _monthly_currency mc on greatest(substring(value_valuedate::text, 1,7), to_char(current_date-60, 'yyyy-mm')) = yearmonth and lower(coalesce(value_currency, activity.defaultcurrency)) =  lower(currency)
+           '''
+        )
+
+        _create_table('tmp_transaction_sector', connection, 
+            '''select distinct on (_link_transaction) _link_transaction, code, codename from transaction_sector where vocabulary is null or vocabulary in ('', '1');'''
+        )
+
+        _create_table('tmp_transaction', connection, 
+            '''SELECT 
+                   t.*, value_usd, ts.code as sector_code, ts.codename as sector_codename 
+               FROM  
+                   transaction t 
+               LEFT JOIN
+                    tmp_transaction_sector ts on t._link = ts._link_transaction
+               LEFT JOIN
+                    tmp_transaction_usd usd on t._link = usd._link
+            '''
+        )
+
+        result = connection.execute('''
+            select 
+                sum(case when value_usd is not null then 1 else 0 end) value_usd,
+                sum(case when sector_code is not null then 1 else 0 end) sector_code,
+                sum(case when sector_codename is not null then 1 else 0 end) sector_codename
+            from 
+                tmp_transaction
+        ''' ).fetchone()
+
+        connection.execute('''
+            insert into _fields values('transaction', 'value_usd', 'number', %s, 'Value in USD', 10000); 
+            insert into _fields values('transaction', 'sector_code', 'text', %s, 'Sector code for default vocabulary', 10001);  
+            insert into _fields values('transaction', 'sector_codename', 'text', %s, 'Sector code name for default vocabulary', 10002);   
+        ''', *result)
+
+
+        connection.execute('''
+            drop table if exists tmp_transaction_usd;
+            drop table if exists tmp_transaction_sector;
+            drop table if exists transaction;
+            alter table tmp_transaction rename to transaction;
+        ''')
+
+
+def sql_process():
+    augment_transaction()
 
 
 def export_sqlite():

@@ -33,24 +33,24 @@ from lxml import etree as ET
 import sys
 
 # Namespaces necessary for opening schema files
-namespaces = {
-    'xsd': 'http://www.w3.org/2001/XMLSchema'
-}
+namespaces = {"xsd": "http://www.w3.org/2001/XMLSchema"}
+
 
 class IATISchemaWalker(object):
     """
     Class for converting an IATI XML schema to documentation in the
     reStructuredText format.
-    
+
     Based on the Schema2Doc class in https://github.com/IATI/IATI-Standard-SSOT/blob/version-2.02/gen.py
 
     """
+
     def __init__(self, schema):
         """
         schema -- the filename of the schema to use, e.g.
                   'iati-activities-schema.xsd'
         """
-        self.tree = ET.parse("./IATI-Schemas/"+schema)
+        self.tree = ET.parse("./IATI-Schemas/" + schema)
         self.tree2 = ET.parse("./IATI-Schemas/iati-common.xsd")
 
     def get_schema_element(self, tag_name, name_attribute):
@@ -63,9 +63,15 @@ class IATISchemaWalker(object):
                           e.g. iati-activities
 
         """
-        schema_element = self.tree.find("xsd:{0}[@name='{1}']".format(tag_name, name_attribute), namespaces=namespaces)
+        schema_element = self.tree.find(
+            "xsd:{0}[@name='{1}']".format(tag_name, name_attribute),
+            namespaces=namespaces,
+        )
         if schema_element is None:
-            schema_element = self.tree2.find("xsd:{0}[@name='{1}']".format(tag_name, name_attribute), namespaces=namespaces)
+            schema_element = self.tree2.find(
+                "xsd:{0}[@name='{1}']".format(tag_name, name_attribute),
+                namespaces=namespaces,
+            )
         return schema_element
 
     def element_loop(self, element, path):
@@ -76,25 +82,39 @@ class IATISchemaWalker(object):
 
         a = element.attrib
         type_elements = []
-        if 'type' in a:
-            complexType = self.get_schema_element('complexType', a['type'])
+        if "type" in a:
+            complexType = self.get_schema_element("complexType", a["type"])
             if complexType is not None:
-                type_elements = ( complexType.findall('xsd:choice/xsd:element', namespaces=namespaces) +
-                    complexType.findall('xsd:sequence/xsd:element', namespaces=namespaces) )
+                type_elements = complexType.findall(
+                    "xsd:choice/xsd:element", namespaces=namespaces
+                ) + complexType.findall(
+                    "xsd:sequence/xsd:element", namespaces=namespaces
+                )
 
-        children = ( element.findall('xsd:complexType/xsd:choice/xsd:element', namespaces=namespaces)
-            + element.findall('xsd:complexType/xsd:sequence/xsd:element', namespaces=namespaces)
-            + element.findall("xsd:complexType/xsd:all/xsd:element", namespaces=namespaces)
-            + type_elements)
+        children = (
+            element.findall(
+                "xsd:complexType/xsd:choice/xsd:element", namespaces=namespaces
+            )
+            + element.findall(
+                "xsd:complexType/xsd:sequence/xsd:element", namespaces=namespaces
+            )
+            + element.findall(
+                "xsd:complexType/xsd:all/xsd:element", namespaces=namespaces
+            )
+            + type_elements
+        )
         child_tuples = []
         for child in children:
             a = child.attrib
-            if 'name' in a:
-                child_tuples.append((a['name'], child, None, a.get('minOccurs'), a.get('maxOccurs')))
+            if "name" in a:
+                child_tuples.append(
+                    (a["name"], child, None, a.get("minOccurs"), a.get("maxOccurs"))
+                )
             else:
-                child_tuples.append((a['ref'], None, child, a.get('minOccurs'), a.get('maxOccurs')))
+                child_tuples.append(
+                    (a["ref"], None, child, a.get("minOccurs"), a.get("maxOccurs"))
+                )
         return child_tuples
-
 
     def create_schema_dict(self, parent_name, parent_element=None):
         """
@@ -102,56 +122,77 @@ class IATISchemaWalker(object):
         element in the IATI schema.
         """
         if parent_element is None:
-            parent_element = self.get_schema_element('element', parent_name)
+            parent_element = self.get_schema_element("element", parent_name)
 
-        return OrderedDict([(name, self.create_schema_dict(name, element)) for name, element, _, _, _ in self.element_loop(parent_element, '')])
+        return OrderedDict(
+            [
+                (name, self.create_schema_dict(name, element))
+                for name, element, _, _, _ in self.element_loop(parent_element, "")
+            ]
+        )
 
     def create_schema_docs(self, parent_name, parent_element=None):
         """
         Created a nested OrderedDict representing the sturucture (and order!) of
         element in the IATI schema.
         """
+
         def process_element(name, element):
             if element is None:
-                element = self.get_schema_element('element', name) 
+                element = self.get_schema_element("element", name)
 
             if element is None:
-                return {} 
+                return {}
             else:
                 info = dict(element.attrib)
                 docs = ""
 
                 xs = "http://www.w3.org/2001/XMLSchema"
 
-                docelement = element.xpath('xs:annotation/xs:documentation', namespaces={"xs":f"{xs}"})
+                docelement = element.xpath(
+                    "xs:annotation/xs:documentation", namespaces={"xs": f"{xs}"}
+                )
                 if len(docelement):
                     docs = docelement[0].text.strip()
-                info['docs'] = docs
-                info['attributes'] = {}
+                info["docs"] = docs
+                info["attributes"] = {}
 
-
-                new_element = self.get_schema_element('complexType', info.get('type')) 
+                new_element = self.get_schema_element("complexType", info.get("type"))
                 if new_element is not None:
                     element = new_element
 
-
-                attributes = element.xpath('.//xs:attribute', namespaces={"xs":f"{xs}"})
+                attributes = element.xpath(
+                    ".//xs:attribute", namespaces={"xs": f"{xs}"}
+                )
                 for attribute in attributes:
                     attribute_docs = ""
-                    name = attribute.attrib.get('name', attribute.attrib.get('ref'))
+                    name = attribute.attrib.get("name", attribute.attrib.get("ref"))
                     if not name:
                         continue
-                    docelement = attribute.xpath('xs:annotation/xs:documentation', namespaces={"xs":f"{xs}"})
+                    docelement = attribute.xpath(
+                        "xs:annotation/xs:documentation", namespaces={"xs": f"{xs}"}
+                    )
                     if len(docelement):
                         attribute_docs = docelement[0].text.strip()
-                    info['attributes'][name] = attribute_docs
+                    info["attributes"][name] = attribute_docs
 
                 return info
 
         if parent_element is None:
-            parent_element = self.get_schema_element('element', parent_name)
+            parent_element = self.get_schema_element("element", parent_name)
 
-        return OrderedDict([(name, {"info": process_element(name, element), "properties": self.create_schema_docs(name, element)}) for name, element, _, _, _ in self.element_loop(parent_element, '')])
+        return OrderedDict(
+            [
+                (
+                    name,
+                    {
+                        "info": process_element(name, element),
+                        "properties": self.create_schema_docs(name, element),
+                    },
+                )
+                for name, element, _, _, _ in self.element_loop(parent_element, "")
+            ]
+        )
 
 
 def sort_iati_element(element, schema_subdict):
@@ -161,8 +202,9 @@ def sort_iati_element(element, schema_subdict):
     children = list(element)
     for child in children:
         element.remove(child)
-    for child in sorted(children,
-           key=lambda x: list(schema_subdict.keys()).index(x.tag)):
+    for child in sorted(
+        children, key=lambda x: list(schema_subdict.keys()).index(x.tag)
+    ):
         element.append(child)
         sort_iati_element(child, schema_subdict[child.tag])
 
@@ -171,19 +213,21 @@ def sort_iati_xml_file(input_file, output_file):
     """
     Sort an IATI XML file according to the schema.
     """
-    schema_dict = IATISchemaWalker('iati-activities-schema.xsd').create_schema_dict('iati-activity')
+    schema_dict = IATISchemaWalker("iati-activities-schema.xsd").create_schema_dict(
+        "iati-activity"
+    )
     tree = ET.parse(input_file)
     root = tree.getroot()
 
     for element in root:
         sort_iati_element(element, schema_dict)
 
-    with open(output_file, 'wb') as fp:
-        tree.write(fp, encoding='utf-8')
+    with open(output_file, "wb") as fp:
+        tree.write(fp, encoding="utf-8")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if len(sys.argv) <= 2:
-        print('Usage: python3 sort_iati.py input_file.xml output_file.xml')
+        print("Usage: python3 sort_iati.py input_file.xml output_file.xml")
     else:
         sort_iati_xml_file(sys.argv[1], sys.argv[2])

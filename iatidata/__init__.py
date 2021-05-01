@@ -290,6 +290,7 @@ def process_registry(processes=5, sample=None, refresh=False):
     activity_objects()
     schema_analysis()
     postgres_tables()
+    sql_process()
 
 
 def process_activities(activities, name):
@@ -309,6 +310,7 @@ def process_activities(activities, name):
     activity_objects()
     schema_analysis()
     postgres_tables()
+    sql_process()
 
 
 def flatten_object(obj, current_path="", no_index_path=tuple()):
@@ -803,6 +805,31 @@ def transaction_breakdown():
 
 def sql_process():
     augment_transaction()
+    transaction_breakdown()
+
+
+def export_stats():
+    stats_file = pathlib.Path() / "stats.json"
+
+    stats = {}
+    with get_engine().begin() as connection:
+        results = connection.execute(
+            "SELECT to_json(_tables) as table FROM _tables order by table_order"
+        )
+        stats['tables'] = [row.table for row in results]
+
+        fields = defaultdict(list)
+
+        results = connection.execute(
+            "SELECT table_name, to_json(_fields) as field_info FROM _fields order by table_name, field_order, field"
+        )
+
+        for result in results:
+            fields[result.table_name].append(result.field_info)
+
+        stats['fields'] = fields
+
+        stats_file.write_text(json.dumps(stats, indent=2))
 
 
 def export_sqlite():
@@ -869,4 +896,4 @@ def export_sqlite():
             check=True,
         )
 
-        subprocess.run(["gzip", "-k", "-9", f"{sqlite_file}"], check=True)
+        subprocess.run(["gzip", "-fk", "-9", f"{sqlite_file}"], check=True)

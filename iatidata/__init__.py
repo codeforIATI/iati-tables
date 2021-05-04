@@ -765,7 +765,6 @@ def transaction_breakdown():
         result = connection.execute(
             """
         select 
-            sum(case when prefix is not null then 1 else 0 end) prefix,
             sum(case when _link_activity is not null then 1 else 0 end) _link_activity,
             sum(case when _link_transaction is not null then 1 else 0 end) _link_transaction,
             sum(case when sector_code is not null then 1 else 0 end) sector_code,
@@ -785,7 +784,6 @@ def transaction_breakdown():
 
         connection.execute(
             """
-        insert into _fields values ('transaction_breakdown','prefix','string','%s','Registry Prefix');
         insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field');
         insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field');
         insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code');

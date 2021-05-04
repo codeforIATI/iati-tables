@@ -13,7 +13,7 @@ jobs:
         working-directory: ./site
         run: |
           yarn install
-          yarn deploy
+          yarn build
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@4.1.1
         with:

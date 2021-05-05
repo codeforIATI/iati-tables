@@ -23,12 +23,19 @@ from iatidata import sort_iati
 
 this_dir = pathlib.Path(__file__).parent.resolve()
 
+output_dir = os.environ.get("IATI_TABLES_OUTPUT", '.')
 
-def get_engine(schema=None, db_uri=None, pool_size=1):
+schema = os.environ.get("IATI_TABLES_SCHEMA")
+
+output_path = pathlib.Path(output_dir)
+
+
+def get_engine(db_uri=None, pool_size=1):
     if not db_uri:
         db_uri = os.environ["DATABASE_URL"]
 
     connect_args = {}
+
     if schema:
         connect_args = {"options": f"-csearch_path={schema}"}
 
@@ -286,6 +293,16 @@ def save_all(parts=5, sample=None, refresh=False):
 
 
 def process_registry(processes=5, sample=None, refresh=False):
+
+    if schema:
+        engine = get_engine()
+        engine.execute(
+            f"""
+            DROP schema IF EXISTS {schema} CASCADE;
+            CREATE schema {schema};
+            """
+        )
+
     save_all(sample=sample, parts=processes, refresh=refresh)
     activity_objects()
     schema_analysis()
@@ -807,9 +824,10 @@ def sql_process():
 
 
 def export_stats():
-    stats_file = pathlib.Path() / "stats.json"
 
-    stats = {}
+    stats_file = output_path / "stats.json"
+
+    stats = {"updated": str(datetime.datetime.utcnow())}
     with get_engine().begin() as connection:
         results = connection.execute(
             "SELECT to_json(_tables) as table FROM _tables order by table_order"
@@ -829,9 +847,16 @@ def export_stats():
 
         stats_file.write_text(json.dumps(stats, indent=2))
 
+        activities = [row.iatiidentifier for row in connection.execute(
+            "SELECT iatiidentifier from activity group by 1"
+        )]
+
+        with gzip.open(str(output_path / 'activities.json.gz'), "wt") as activities_file:
+            json.dump(activities, activities_file)
+
 
 def export_sqlite():
-    sqlite_file = pathlib.Path() / "iati.sqlite"
+    sqlite_file = output_path / "iati.sqlite"
     if sqlite_file.is_file():
         sqlite_file.unlink()
 
@@ -895,3 +920,25 @@ def export_sqlite():
         )
 
         subprocess.run(["gzip", "-fk", "-9", f"{sqlite_file}"], check=True)
+        subprocess.run(["zip", f"{output_path}/iati.sqlite.zip", f"{sqlite_file}"], check=True)
+
+
+def export_all():
+    export_stats()
+    export_sqlite()
+
+
+def upload_all():
+    s3_dir = "s3://iati/"
+
+    files = ['stats.json', "iati.sqlite.gz", "iati.sqlite", "iati.sqlite.zip", "activities.json.gz"]
+
+    for file in files:
+        subprocess.run(["s3cmd", "put", f"{output_dir}/{file}", s3_dir], check=True)
+        subprocess.run(["s3cmd", "setacl", f"{s3_dir}{file}", "--acl-public"], check=True)
+
+
+def run_all(sample=None, refresh=True):
+    process_registry(refresh=refresh, sample=sample)
+    export_all()
+    upload_all()

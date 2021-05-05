@@ -6,6 +6,7 @@ import tempfile
 import functools
 import datetime
 import subprocess
+import zipfile
 from textwrap import dedent
 from io import StringIO
 
@@ -923,15 +924,65 @@ def export_sqlite():
         subprocess.run(["zip", f"{output_path}/iati.sqlite.zip", f"{sqlite_file}"], check=True)
 
 
+def export_csv():
+    with get_engine(schema).begin() as connection, zipfile.ZipFile(f"{output_dir}/iati_csv.zip", "w") as zip_file:
+        result = list(
+            connection.execute(
+                "SELECT table_name FROM _tables"
+            )
+        )
+        for row in result:
+            csv_output_path = output_path / f"{row.table_name}.csv"
+            with open(f"{csv_output_path}", "wb") as out:
+                dbapi_conn = connection.connection
+                copy_sql = f'COPY "{row.table_name.lower()}" TO STDOUT WITH CSV HEADER'
+                cur = dbapi_conn.cursor()
+                cur.copy_expert(copy_sql, out)
+
+            zip_file.write(
+                f"{output_dir}/{row.table_name}.csv",
+                arcname=f"iati/{row.table_name}.csv",
+            )
+            csv_output_path.unlink()
+
+
+def export_pgdump():
+    subprocess.run(
+        [
+            "pg_dump",
+            "--no-owner",
+            "-f",
+            f"{output_dir}/iati.custom.pg_dump",
+            "-n",
+            schema or 'public',
+            "-F",
+            "c",
+            os.environ["DATABASE_URL"]
+        ],
+        check=True
+    )
+    cmd = f"""
+       pg_dump --no-owner -n {schema or 'public'} {os.environ["DATABASE_URL"]} | gzip > {output_dir}/iati.dump.gz
+    """
+    subprocess.run(
+        cmd, shell=True, check=True
+    )
+
+
 def export_all():
     export_stats()
     export_sqlite()
+    export_csv()
+    export_pgdump()
 
 
 def upload_all():
     s3_dir = "s3://iati/"
 
-    files = ['stats.json', "iati.sqlite.gz", "iati.sqlite", "iati.sqlite.zip", "activities.json.gz"]
+    files = ["stats.json", "iati.sqlite.gz", 
+             "iati.sqlite", "iati.sqlite.zip", 
+             "activities.json.gz", "iati_csv.zip", 
+             "iati.custom.pg_dump", "iati.dump.gz"]
 
     for file in files:
         subprocess.run(["s3cmd", "put", f"{output_dir}/{file}", s3_dir], check=True)

@@ -4,24 +4,52 @@
       <v-col cols=12>
         <v-card elevation="0" color="white">
           <v-card-title class="capitalize-source text-h4">
-            IATI Tables
-            <span>
-              <v-chip
-                class="ml-10"
-                color="deep-purple darken-4"
-                text-color="white"
-                href="https://iati.fra1.digitaloceanspaces.com/iati.sqlite.zip">
-              Download SQLite Zip
-              </v-chip>
-              <v-chip
-                class="ml-3"
-                color="grey darken-3"
-                text-color="white"
-                href="https://colab.research.google.com/drive/15Ahauin2YgloaFEwiGjqbnv7L91xNUua"
-              >
-              Link to Colab Notebook
-              </v-chip>
-            </span>
+            <v-row>
+              <v-col xl=2 lg=3>
+                IATI Tables
+              </v-col>
+              <v-col xl=9 lg=9 cols=12>
+                <v-chip
+                  class="ml-3"
+                  color="grey darken-3"
+                  text-color="white"
+                  href="https://colab.research.google.com/drive/15Ahauin2YgloaFEwiGjqbnv7L91xNUua"
+                >
+                Colab Notebook
+                </v-chip>
+                <v-chip
+                  class="ml-3"
+                  color="deep-purple darken-4"
+                  text-color="white"
+                  href="https://iati.fra1.digitaloceanspaces.com/iati.sqlite.zip">
+                SQLite Zip
+                </v-chip>
+                <v-chip
+                  class="ml-3"
+                  color="red darken-3"
+                  text-color="white"
+                  href="https://iati.fra1.digitaloceanspaces.com/iati_csv.zip"
+                >
+                CSV Zip
+                </v-chip>
+                <v-chip
+                  class="ml-3"
+                  color="blue darken-3"
+                  text-color="white"
+                  href="https://iati.fra1.digitaloceanspaces.com/iati.custom.pg_dump"
+                >
+                PG Dump (custom)
+                </v-chip>
+                <v-chip
+                  class="ml-3"
+                  color="blue darken-2"
+                  text-color="white"
+                  href="https://iati.fra1.digitaloceanspaces.com/iati.dump.gz"
+                >
+                PG Dump (gzip)
+                </v-chip>
+              </v-col>
+            </v-row>
           </v-card-title>
         </v-card>
       </v-col>
@@ -34,6 +62,7 @@
           </v-card-title >
           <v-card-text >
             <p>IATI data has been transfromed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
+            <p><b>Last Update:</b> {{stats.updated.substring(0, 16)}}</p>
           </v-card-text>
         </v-card>
       </v-col>
@@ -44,6 +73,7 @@
           </v-card-title >
           <v-card-text >
             <p>Click on the output formats above to get the data!</p>
+            <p>The Colab Notebook is an online jupyter notebook and gives you a way to do custom analysis on the whole of IATI by getting the data in under 3mins.</p>
           </v-card-text>
         </v-card>
       </v-col>
@@ -115,7 +145,7 @@ export default {
   },
   computed: {
     toplevel: function () {
-      return this.stats.tables.filter(table => (!table.table_name.includes('_')) && table.rows > 100000)
+      return this.stats.tables.filter(table => (!table.table_name.includes('_')) && table.rows > 10000)
     }
   },
   methods: {

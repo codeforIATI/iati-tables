@@ -618,7 +618,7 @@ def postgres_tables(drop_release_objects=False):
     with get_engine().begin() as connection:
         result = list(
             connection.execute(
-                "SELECT table_name, field, type FROM _fields order by field_order"
+                "SELECT table_name, field, type FROM _fields order by table_name, field_order, field"
             )
         )
         for row in result:
@@ -865,7 +865,7 @@ def export_sqlite():
     with tempfile.TemporaryDirectory() as tmpdirname, get_engine().begin() as connection:
         result = list(
             connection.execute(
-                "SELECT table_name, field, type FROM _fields order by field_order"
+                "SELECT table_name, field, type FROM _fields order by  table_name, field_order, field"
             )
         )
         for row in result:

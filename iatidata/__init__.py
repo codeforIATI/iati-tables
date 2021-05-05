@@ -938,7 +938,7 @@ def upload_all():
         subprocess.run(["s3cmd", "setacl", f"{s3_dir}{file}", "--acl-public"], check=True)
 
 
-def run_all(sample=None, refresh=True):
-    process_registry(refresh=refresh, sample=sample)
+def run_all(sample=None, refresh=True, processes=5):
+    process_registry(refresh=refresh, sample=sample, processes=processes)
     export_all()
     upload_all()

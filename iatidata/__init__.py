@@ -560,7 +560,10 @@ def schema_analysis():
                 path = object_type + "_" + key
             if key.startswith("_link"):
                 order = 0
-                docs = "_link field"
+                if key == '_link':
+                    docs = "Priamry Key for this table. It is unique and used for other tables rows to join to this table."
+                else:
+                    docs = f"Foreign key to {key[6:]} tables `_link` field"
             else:
                 order, docs = schema_lookup.get(path, [9999, ""])
                 if not docs:
@@ -802,18 +805,18 @@ def transaction_breakdown():
 
         connection.execute(
             """
-        insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field');
-        insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field');
-        insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code');
-        insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name');
-        insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code');
-        insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code');
-        insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name');
-        insert into _fields values ('transaction_breakdown','value','number','%s','Value');
-        insert into _fields values ('transaction_breakdown','value_currency','string','%s','Transaction Currency');
-        insert into _fields values ('transaction_breakdown','value_valuedate','datetime','%s','Transaction Date');
-        insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD');
-        insert into _fields values ('transaction_breakdown','percentage_used','number','%s','Percentage of transaction this row represents');
+        insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field', 1);
+        insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field', 2);
+        insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 3);
+        insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 4);
+        insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 5);
+        insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 6);
+        insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 7);
+        insert into _fields values ('transaction_breakdown','value','number','%s','Value', 8);
+        insert into _fields values ('transaction_breakdown','value_currency','string','%s','Transaction Currency', 9);
+        insert into _fields values ('transaction_breakdown','value_valuedate','datetime','%s','Transaction Date', 10);
+        insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD', 11);
+        insert into _fields values ('transaction_breakdown','percentage_used','number','%s','Percentage of transaction this row represents', 12);
         """,
             *result,
         )

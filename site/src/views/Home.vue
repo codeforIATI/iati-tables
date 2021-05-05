@@ -73,7 +73,7 @@
           </v-card-title >
           <v-card-text >
             <p>Click on the output formats above to get the data!</p>
-            <p>The Colab Notebook is an online jupyter notebook and gives you a quick way to do custom analysis on the whole of IATI data. It contains some useage examples.</p>
+            <p>The Colab Notebook is an online jupyter notebook and gives you a quick way to do custom analysis on the whole of IATI data.</p>
           </v-card-text>
         </v-card>
       </v-col>

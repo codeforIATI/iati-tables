@@ -170,6 +170,9 @@ def get_codelists_lookup():
 
     mappings.pop("Version")
 
+    mappings["Country"] = [('transaction', 'recipientcountry', '@code'),
+                           ('recipientcountry', '@code')]
+
     codelists_dir = pathlib.Path() / "__iatikitcache__/standard/codelists"
 
     for codelist_file in codelists_dir.glob("*.json"):
@@ -749,9 +752,9 @@ def transaction_breakdown():
 
         country_region AS ( 
             select *, sum(percentage) over (partition by _link_activity) AS total_percentage from
-                (select prefix, _link_activity, 'country' as locationtype, code as country_code, '' as region_code , '' as region_codename, coalesce(percentage, 100) as percentage FROM recipientcountry where coalesce(percentage, 100) <> 0
+                (select prefix, _link_activity, 'country' as locationtype, code as country_code, codename as country_codename, '' as region_code , '' as region_codename, coalesce(percentage, 100) as percentage FROM recipientcountry where coalesce(percentage, 100) <> 0
                     union all
-                 select rr.prefix, _link_activity, 'region' as locationtype, ''          , code as regioncode, codename             , coalesce(percentage, 100) as percentage 
+                 select rr.prefix, _link_activity, 'region' as locationtype, ''          , '', code as regioncode, codename             , coalesce(percentage, 100) as percentage 
                  FROM recipientregion rr
                  LEFT JOIN country_100 c1 using (_link_activity)
                  WHERE coalesce(vocabulary, '1') = '1' and coalesce(percentage, 100) <> 0 and c1._link_activity is null  
@@ -764,10 +767,11 @@ def transaction_breakdown():
             t._link as _link_transaction, 
             coalesce(t.sector_code, sc.code) sector_code, 
             coalesce(t.sector_codename, sc.codename) sector_codename,
-            coalesce(t.recipientcountry_code, cr.country_code) recipientcountry_code, 
-            coalesce(t.recipientregion_code, cr.region_code) recipientregion_code, 
+            coalesce(t.recipientcountry_code, cr.country_code) recipientcountry_code,
+            coalesce(t.recipientcountry_codename, cr.country_codename) recipientcountry_codename, 
+            coalesce(t.recipientregion_code, cr.region_code) recipientregion_code,
             coalesce(t.recipientregion_codename, cr.region_codename) recipientregion_codename, 
-            value * coalesce(sc.percentage/sc.total_percentage, 1) * coalesce(cr.percentage/cr.total_percentage, 1) AS value, 
+            value * coalesce(sc.percentage/sc.total_percentage, 1) * coalesce(cr.percentage/cr.total_percentage, 1) AS value,
             t.value_currency,
             t.value_valuedate,
             value_usd * coalesce(sc.percentage/sc.total_percentage, 1) * coalesce(cr.percentage/cr.total_percentage, 1) AS value_usd, 
@@ -791,6 +795,7 @@ def transaction_breakdown():
             sum(case when sector_code is not null then 1 else 0 end) sector_code,
             sum(case when sector_codename is not null then 1 else 0 end) sector_codename,
             sum(case when recipientcountry_code is not null then 1 else 0 end) recipientcountry_code,
+            sum(case when recipientcountry_codename is not null then 1 else 0 end) recipientcountry_codenme,
             sum(case when recipientregion_code is not null then 1 else 0 end) recipientregion_code,
             sum(case when recipientregion_codename is not null then 1 else 0 end) recipientregion_codename,
             sum(case when value is not null then 1 else 0 end) "value",
@@ -810,6 +815,7 @@ def transaction_breakdown():
         insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 3);
         insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 4);
         insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 5);
+        insert into _fields values ('transaction_breakdown','recipientcountry_codename','string','%s','Recipient Country Code', 5);
         insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 6);
         insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 7);
         insert into _fields values ('transaction_breakdown','value','number','%s','Value', 8);

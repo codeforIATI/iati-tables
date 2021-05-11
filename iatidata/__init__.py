@@ -331,7 +331,6 @@ def process_activities(activities, name):
     activity_objects()
     schema_analysis()
     postgres_tables()
-    sql_process()
 
 
 def flatten_object(obj, current_path="", no_index_path=tuple()):

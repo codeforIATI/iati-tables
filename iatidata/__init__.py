@@ -5,6 +5,7 @@ import sqlalchemy as sa
 import tempfile
 import functools
 import datetime
+import shutil
 import subprocess
 import zipfile
 from textwrap import dedent
@@ -877,6 +878,9 @@ def export_sqlite():
     sqlite_file = output_path / "iati.sqlite"
     if sqlite_file.is_file():
         sqlite_file.unlink()
+    datasette_file = output_path / "iati.db"
+    if datasette_file.is_file():
+        datasette_file.unlink()
 
     object_details = defaultdict(list)
     with tempfile.TemporaryDirectory() as tmpdirname, get_engine().begin() as connection:
@@ -888,7 +892,26 @@ def export_sqlite():
         for row in result:
             object_details[row.table_name].append(dict(name=row.field, type=row.type))
 
+        indexes = []
+
         for object_type, object_details in object_details.items():
+
+            target_object_type = object_type
+            if object_type == "transaction":
+                target_object_type = "trans"
+
+            fks = []
+
+            for num, item in enumerate(object_details):
+                name = item["name"]
+                if name.startswith('_link'):
+                    indexes.append(f'CREATE INDEX "{target_object_type}_{name}" on "{target_object_type}"("{name}");')
+                if name.startswith('_link_'):
+                    foreign_table = name[6:]
+                    if object_type == 'activity':
+                        continue
+                    fks.append(f',FOREIGN KEY("{name}") REFERENCES "{foreign_table}"(_link)')
+
             print(f"importing table {object_type}")
             with open(f"{tmpdirname}/{object_type}.csv", "wb") as out:
                 dbapi_conn = connection.connection
@@ -898,13 +921,10 @@ def export_sqlite():
 
             _, field_def = create_field_sql(object_details, sqlite=True)
 
-            target_object_type = object_type
-            if object_type == "transaction":
-                target_object_type = "trans"
 
             import_sql = f"""
             .mode csv
-            CREATE TABLE "{target_object_type}" (prefix, {field_def}) ;
+            CREATE TABLE "{target_object_type}" (prefix, {field_def} {' '.join(fks)}) ;
             .import '{tmpdirname}/{object_type}.csv' "{target_object_type}" """
 
             print(import_sql)
@@ -917,6 +937,7 @@ def export_sqlite():
             )
 
             os.remove(f"{tmpdirname}/{object_type}.csv")
+
 
         with open(f"{tmpdirname}/fields.csv", "w") as csv_file:
 
@@ -937,8 +958,19 @@ def export_sqlite():
             check=True,
         )
 
+        shutil.copy(sqlite_file, datasette_file)
+
+        subprocess.run(
+            ["sqlite3", f"{datasette_file}"],
+            input='\n'.join(indexes),
+            text=True,
+            check=True,
+        )
+
+        subprocess.run(["gzip", "-f", "-9", f"{datasette_file}"], check=True)
         subprocess.run(["gzip", "-fk", "-9", f"{sqlite_file}"], check=True)
         subprocess.run(["zip", f"{output_path}/iati.sqlite.zip", f"{sqlite_file}"], check=True)
+
 
 
 def export_csv():
@@ -996,7 +1028,7 @@ def export_all():
 def upload_all():
     s3_dir = "s3://iati/"
 
-    files = ["stats.json", "iati.sqlite.gz", 
+    files = ["stats.json", "iati.sqlite.gz", "iati.db.gz",
              "iati.sqlite", "iati.sqlite.zip", 
              "activities.json.gz", "iati_csv.zip", 
              "iati.custom.pg_dump", "iati.dump.gz"]

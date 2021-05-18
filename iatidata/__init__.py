@@ -764,6 +764,9 @@ def transaction_breakdown():
             t.prefix,
             t._link_activity, 
             t._link as _link_transaction, 
+            t.transactiontype_code,
+            t.transactiontype_codename,
+            t.transactiondate_isodate,
             coalesce(t.sector_code, sc.code) sector_code, 
             coalesce(t.sector_codename, sc.codename) sector_codename,
             coalesce(t.recipientcountry_code, cr.country_code) recipientcountry_code,
@@ -791,6 +794,9 @@ def transaction_breakdown():
         select 
             sum(case when _link_activity is not null then 1 else 0 end) _link_activity,
             sum(case when _link_transaction is not null then 1 else 0 end) _link_transaction,
+            sum(case when transactiontype_code is not null then 1 else 0 end) transactiontype_code,
+            sum(case when transactiontype_codename is not null then 1 else 0 end) transactiontype_codename,
+            sum(case when transactiondate_isodate is not null then 1 else 0 end) transactiondate_isodate,
             sum(case when sector_code is not null then 1 else 0 end) sector_code,
             sum(case when sector_codename is not null then 1 else 0 end) sector_codename,
             sum(case when recipientcountry_code is not null then 1 else 0 end) recipientcountry_code,
@@ -811,17 +817,20 @@ def transaction_breakdown():
             """
         insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field', 1);
         insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field', 2);
-        insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 3);
-        insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 4);
-        insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 5);
-        insert into _fields values ('transaction_breakdown','recipientcountry_codename','string','%s','Recipient Country Code', 5);
-        insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 6);
-        insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 7);
-        insert into _fields values ('transaction_breakdown','value','number','%s','Value', 8);
-        insert into _fields values ('transaction_breakdown','value_currency','string','%s','Transaction Currency', 9);
-        insert into _fields values ('transaction_breakdown','value_valuedate','datetime','%s','Transaction Date', 10);
-        insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD', 11);
-        insert into _fields values ('transaction_breakdown','percentage_used','number','%s','Percentage of transaction this row represents', 12);
+        insert into _fields values ('transaction_breakdown','transactiontype_code','string','%s','Transaction Type Code', 3);
+        insert into _fields values ('transaction_breakdown','transactiontype_codename','string','%s','Transaction Type Codelist Name', 4); 
+        insert into _fields values ('transaction_breakdown','transactiondate_isodate','string','%s','Transaction Name', 5); 
+        insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 6);
+        insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 7);
+        insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 8);
+        insert into _fields values ('transaction_breakdown','recipientcountry_codename','string','%s','Recipient Country Code', 9);
+        insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 10);
+        insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 11);
+        insert into _fields values ('transaction_breakdown','value','number','%s','Value', 12);
+        insert into _fields values ('transaction_breakdown','value_currency','string','%s','Transaction Currency', 13);
+        insert into _fields values ('transaction_breakdown','value_valuedate','datetime','%s','Transaction Date', 14);
+        insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD', 15);
+        insert into _fields values ('transaction_breakdown','percentage_used','number','%s','Percentage of transaction this row represents', 16);
         """,
             *result,
         )

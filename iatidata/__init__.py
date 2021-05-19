@@ -820,7 +820,7 @@ def transaction_breakdown():
         insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field', 2);
         insert into _fields values ('transaction_breakdown','transactiontype_code','string','%s','Transaction Type Code', 3);
         insert into _fields values ('transaction_breakdown','transactiontype_codename','string','%s','Transaction Type Codelist Name', 4); 
-        insert into _fields values ('transaction_breakdown','transactiondate_isodate','string','%s','Transaction Name', 5); 
+        insert into _fields values ('transaction_breakdown','transactiondate_isodate','string','%s','Transaction date', 5); 
         insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 6);
         insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 7);
         insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 8);
@@ -908,6 +908,8 @@ def export_sqlite():
                     indexes.append(f'CREATE INDEX "{target_object_type}_{name}" on "{target_object_type}"("{name}");')
                 if name.startswith('_link_'):
                     foreign_table = name[6:]
+                    if foreign_table == "transaction":
+                        foreign_table = "trans"
                     if object_type == 'activity':
                         continue
                     fks.append(f',FOREIGN KEY("{name}") REFERENCES "{foreign_table}"(_link)')

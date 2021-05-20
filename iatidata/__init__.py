@@ -121,7 +121,7 @@ def get_schema_docs():
     schema_docs_lookup = {}
     for num, (field, doc) in enumerate(flatten_schema_docs(schema_docs)):
         field = field.replace("-", "")
-        schema_docs_lookup[field] = [num + 1, doc]
+        schema_docs_lookup[field] = [num + 3, doc]
 
     return schema_docs_lookup
 
@@ -438,6 +438,10 @@ def create_rows(result):
 
         object["_link"] = f'{result.id}{"." if object_key else ""}{object_key}'
         object["_link_activity"] = str(result.id)
+        if object_type != 'activity':
+            object["iatiidentifier"] = result.activity.get('iati-identifier')
+            object["reportingorg_ref"] = result.activity.get('reporting-org', {}).get('@ref')
+
         for no_index, full in zip(parent_keys_no_index, parent_keys_list):
             object[f"_link_{no_index}"] = f"{result.id}.{full}"
 
@@ -567,6 +571,10 @@ def schema_analysis():
                     docs = "Priamry Key for this table. It is unique and used for other tables rows to join to this table."
                 else:
                     docs = f"Foreign key to {key[6:]} tables `_link` field"
+            elif key == 'iatiidentifier':
+                order, docs = 1, 'A globally unique identifier for the activity.'
+            elif key == 'reportingorg_ref':
+                order, docs = 2, 'Machine-readable identification string for the organisation issuing the report.'
             else:
                 order, docs = schema_lookup.get(path, [9999, ""])
                 if not docs:
@@ -765,6 +773,8 @@ def transaction_breakdown():
             t.prefix,
             t._link_activity, 
             t._link as _link_transaction, 
+            t.iatiidentifier, 
+            t.reportingorg_ref, 
             t.transactiontype_code,
             t.transactiontype_codename,
             t.transactiondate_isodate,
@@ -795,6 +805,8 @@ def transaction_breakdown():
         select 
             sum(case when _link_activity is not null then 1 else 0 end) _link_activity,
             sum(case when _link_transaction is not null then 1 else 0 end) _link_transaction,
+            sum(case when iatiidentifier is not null then 1 else 0 end) iatiidentifier,
+            sum(case when reportingorg_ref is not null then 1 else 0 end) reportingorg_ref,
             sum(case when transactiontype_code is not null then 1 else 0 end) transactiontype_code,
             sum(case when transactiontype_codename is not null then 1 else 0 end) transactiontype_codename,
             sum(case when transactiondate_isodate is not null then 1 else 0 end) transactiondate_isodate,
@@ -818,20 +830,22 @@ def transaction_breakdown():
             """
         insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field', 1);
         insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field', 2);
-        insert into _fields values ('transaction_breakdown','transactiontype_code','string','%s','Transaction Type Code', 3);
-        insert into _fields values ('transaction_breakdown','transactiontype_codename','string','%s','Transaction Type Codelist Name', 4); 
-        insert into _fields values ('transaction_breakdown','transactiondate_isodate','string','%s','Transaction date', 5); 
-        insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 6);
-        insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 7);
-        insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 8);
-        insert into _fields values ('transaction_breakdown','recipientcountry_codename','string','%s','Recipient Country Code', 9);
-        insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 10);
-        insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 11);
-        insert into _fields values ('transaction_breakdown','value','number','%s','Value', 12);
-        insert into _fields values ('transaction_breakdown','value_currency','string','%s','Transaction Currency', 13);
-        insert into _fields values ('transaction_breakdown','value_valuedate','datetime','%s','Transaction Date', 14);
-        insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD', 15);
-        insert into _fields values ('transaction_breakdown','percentage_used','number','%s','Percentage of transaction this row represents', 16);
+        insert into _fields values ('transaction_breakdown','iatiidentifier','string','%s','A globally unique identifier for the activity.', 3);
+        insert into _fields values ('transaction_breakdown','reportingorg_ref','string','%s','Machine-readable identification string for the organisation issuing the report.', 4); 
+        insert into _fields values ('transaction_breakdown','transactiontype_code','string','%s','Transaction Type Code', 5);
+        insert into _fields values ('transaction_breakdown','transactiontype_codename','string','%s','Transaction Type Codelist Name', 6); 
+        insert into _fields values ('transaction_breakdown','transactiondate_isodate','string','%s','Transaction date', 7); 
+        insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 8);
+        insert into _fields values ('transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 9);
+        insert into _fields values ('transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 10);
+        insert into _fields values ('transaction_breakdown','recipientcountry_codename','string','%s','Recipient Country Code', 11);
+        insert into _fields values ('transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 12);
+        insert into _fields values ('transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 13);
+        insert into _fields values ('transaction_breakdown','value','number','%s','Value', 14);
+        insert into _fields values ('transaction_breakdown','value_currency','string','%s','Transaction Currency', 15);
+        insert into _fields values ('transaction_breakdown','value_valuedate','datetime','%s','Transaction Date', 16);
+        insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD', 17);
+        insert into _fields values ('transaction_breakdown','percentage_used','number','%s','Percentage of transaction this row represents', 18);
         """,
             *result,
         )

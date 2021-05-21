@@ -440,7 +440,8 @@ def create_rows(result):
         object["_link_activity"] = str(result.id)
         if object_type != 'activity':
             object["iatiidentifier"] = result.activity.get('iati-identifier')
-            object["reportingorg_ref"] = result.activity.get('reporting-org', {}).get('@ref')
+            reporting_org = result.activity.get('reporting-org', {}) or {}
+            object["reportingorg_ref"] = reporting_org.get('@ref')
 
         for no_index, full in zip(parent_keys_no_index, parent_keys_list):
             object[f"_link_{no_index}"] = f"{result.id}.{full}"

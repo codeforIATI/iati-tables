@@ -48,6 +48,14 @@
                 >
                 PG Dump (gzip)
                 </v-chip>
+                <v-chip
+                  class="ml-3"
+                  color="green darken-4"
+                  text-color="white"
+                  href="https://datasette.codeforiati.org"
+                >
+                Datasette
+                </v-chip>
               </v-col>
             </v-row>
           </v-card-title>

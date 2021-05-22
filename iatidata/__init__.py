@@ -430,7 +430,7 @@ def create_rows(result):
         return []
 
     # get activity dates before traversal remove them
-    activity_dates = result.activity.get('activity-date', [])
+    activity_dates = result.activity.get('activity-date', []) or []
 
     for object, full_path, no_index_path in traverse_object(result.activity, 1):
 
@@ -451,6 +451,8 @@ def create_rows(result):
 
         if object_type == 'activity':
             for activity_date in activity_dates:
+                if not isinstance(activity_date, dict):
+                    continue
                 type = activity_date.get('@type')
                 date = activity_date.get('@iso-date')
                 if type and date and type in DATE_MAP:

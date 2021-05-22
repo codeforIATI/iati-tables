@@ -121,7 +121,8 @@ def get_schema_docs():
     schema_docs_lookup = {}
     for num, (field, doc) in enumerate(flatten_schema_docs(schema_docs)):
         field = field.replace("-", "")
-        schema_docs_lookup[field] = [num + 3, doc]
+        # leave some space for extra fields at the start
+        schema_docs_lookup[field] = [num + 10, doc]
 
     return schema_docs_lookup
 
@@ -419,12 +420,17 @@ def traverse_object(obj, emit_object, full_path=tuple(), no_index_path=tuple()):
         new_object = {key.replace("-", ""): value for key, value in obj.items()}
         yield new_object, full_path, no_index_path
 
+DATE_MAP = {'1': 'plannedstart', '2': 'actualstart', '3': 'plannedend', '4': 'actualend'}
+DATE_MAP_BY_FIELD = {value: int(key) for key, value in DATE_MAP.items()}
 
 def create_rows(result):
     rows = []
 
     if result.activity is None:
         return []
+
+    # get activity dates before traversal remove them
+    activity_dates = result.activity.get('activity-date', [])
 
     for object, full_path, no_index_path in traverse_object(result.activity, 1):
 
@@ -442,6 +448,13 @@ def create_rows(result):
             object["iatiidentifier"] = result.activity.get('iati-identifier')
             reporting_org = result.activity.get('reporting-org', {}) or {}
             object["reportingorg_ref"] = reporting_org.get('@ref')
+
+        if object_type == 'activity':
+            for activity_date in activity_dates:
+                type = activity_date.get('@type')
+                date = activity_date.get('@iso-date')
+                if type and date and type in DATE_MAP:
+                    object[DATE_MAP[type]] = date
 
         for no_index, full in zip(parent_keys_no_index, parent_keys_list):
             object[f"_link_{no_index}"] = f"{result.id}.{full}"
@@ -574,8 +587,10 @@ def schema_analysis():
                     docs = f"Foreign key to {key[6:]} tables `_link` field"
             elif key == 'iatiidentifier':
                 order, docs = 1, 'A globally unique identifier for the activity.'
-            elif key == 'reportingorg_ref':
+            elif key == 'reportingorg_ref' and object_type != 'activity':
                 order, docs = 2, 'Machine-readable identification string for the organisation issuing the report.'
+            elif key in DATE_MAP_BY_FIELD:
+                order, docs = DATE_MAP_BY_FIELD[key] + 2, key
             else:
                 order, docs = schema_lookup.get(path, [9999, ""])
                 if not docs:

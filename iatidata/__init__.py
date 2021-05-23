@@ -6,16 +6,22 @@ import tempfile
 import functools
 import datetime
 import shutil
+import base64
 import subprocess
 import zipfile
 from textwrap import dedent
 from io import StringIO
+import re
 
 import requests
 import iatikit
 import pathlib
 from collections import defaultdict
 from lxml import etree
+from google.cloud import bigquery
+from google.cloud.bigquery.dataset import AccessEntry
+from google.oauth2 import service_account
+from fastavro import parse_schema, writer
 
 import concurrent.futures
 import csv
@@ -1029,6 +1035,117 @@ def export_csv():
             csv_output_path.unlink()
 
 
+name_allowed_pattern = re.compile(r"[\W]+")
+
+
+def create_avro_schema(object_type, object_details):
+    fields = []
+    schema = {"type": "record", "name": object_type, "fields": fields}
+    for item in object_details:
+        type = item["type"]
+        if type == "number":
+            type = "double"
+        if type == "datetime":
+            type = "string"
+
+        field = {
+            "name": name_allowed_pattern.sub("", item["name"]),
+            "type": [type, "null"],
+            "doc": item.get("description"),
+        }
+
+        if type == "array":
+            field["type"] = [
+                {"type": "array", "items": "string", "default": []},
+                "null",
+            ]
+
+        fields.append(field)
+
+    return schema
+
+
+def generate_avro_records(result, object_details):
+
+    cast_to_string = set(
+        [field["name"] for field in object_details if field["type"] == "string"]
+    )
+
+    for row in result:
+        new_object = {}
+        for key, value in row.object.items():
+            new_object[name_allowed_pattern.sub("", key)] = (
+                str(value) if key in cast_to_string else value
+            )
+        yield new_object
+
+
+def export_bigquery():
+
+    json_acct_info = json.loads(
+        base64.b64decode(os.environ["GOOGLE_SERVICE_ACCOUNT"])
+    )
+
+    credentials = service_account.Credentials.from_service_account_info(json_acct_info)
+
+    client = bigquery.Client(credentials=credentials)
+
+    with tempfile.TemporaryDirectory() as tmpdirname, get_engine().begin() as connection:
+        dataset_id = "iati-tables.iati"
+        client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
+        dataset = bigquery.Dataset(dataset_id)
+        dataset.location = "EU"
+
+        dataset = client.create_dataset(dataset, timeout=30)
+
+        access_entries = list(dataset.access_entries)
+        access_entries.append(
+            AccessEntry("READER", "specialGroup", "allAuthenticatedUsers")
+        )
+        dataset.access_entries = access_entries
+
+        dataset = client.update_dataset(dataset, ["access_entries"])
+
+        object_details = defaultdict(list)
+        result = list(
+            connection.execute(
+                "SELECT table_name, field, type, docs FROM _fields order by table_name, field_order, field"
+            )
+        )
+
+        for row in result:
+            object_details[row.table_name].append(dict(name=row.field, type=row.type, description=row.docs))
+
+        for object_type, object_details in object_details.items():
+            print(f"loading {object_type}")
+            result = connection.execute(
+                sa.text(
+                    f'SELECT to_jsonb("{object_type.lower()}") AS object FROM "{object_type.lower()}"'
+                )
+            )
+            schema = create_avro_schema(object_type, object_details)
+
+            with open(f"{tmpdirname}/{object_type}.avro", "wb") as out:
+                writer(
+                    out,
+                    parse_schema(schema),
+                    generate_avro_records(result, object_details),
+                    validator=True,
+                    codec="deflate",
+                )
+
+            table_id = f"{dataset_id}.{object_type}"
+
+            job_config = bigquery.LoadJobConfig(
+                source_format=bigquery.SourceFormat.AVRO
+            )
+
+            with open(f"{tmpdirname}/{object_type}.avro", "rb") as source_file:
+                client.load_table_from_file(
+                    source_file, table_id, job_config=job_config, size=None, timeout=5
+                )
+
+
 def export_pgdump():
     subprocess.run(
         [
@@ -1057,6 +1174,10 @@ def export_all():
     export_sqlite()
     export_csv()
     export_pgdump()
+    try:
+        export_bigquery()
+    except Exception as e:
+        print("Big query failed, proceeding anyway")
 
 
 def upload_all():

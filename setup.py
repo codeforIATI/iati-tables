@@ -9,7 +9,9 @@ install_requires = [
     'psycopg2-binary',
     'click',
     'boto3',
-    'iatikit'
+    'iatikit',
+    'fastavro',
+    'google-cloud-bigquery'
 ]
 
 setup(

@@ -617,7 +617,7 @@ def schema_analysis():
 
     create_table(
         "_tables",
-        'SELECT table_name, min(field_order) table_order, max("count") as rows  FROM _fields WHERE field_order <> 0 GROUP BY table_name',
+        'SELECT table_name, min(field_order) table_order, max("count") as rows  FROM _fields WHERE field_order > 10 GROUP BY table_name',
     )
 
 

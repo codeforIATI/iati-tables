@@ -955,7 +955,7 @@ def export_sqlite():
             print(f"importing table {object_type}")
             with open(f"{tmpdirname}/{object_type}.csv", "wb") as out:
                 dbapi_conn = connection.connection
-                copy_sql = f'COPY "{object_type.lower()}" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
+                copy_sql = f'COPY "{re.sub("[^0-9a-zA-Z]+", "_", object_type.lower())}" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
                 cur = dbapi_conn.cursor()
                 cur.copy_expert(copy_sql, out)
 

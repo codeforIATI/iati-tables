@@ -53,8 +53,8 @@ def get_engine(db_uri=None, pool_size=1):
 def _create_table(table, con, sql, **params):
     con.execute(
         sa.text(
-            f"""DROP TABLE IF EXISTS {table};
-                CREATE TABLE {table}
+            f"""DROP TABLE IF EXISTS "{table}";
+                CREATE TABLE "{table}"
                 AS
                 {sql};"""
         ),
@@ -65,7 +65,7 @@ def _create_table(table, con, sql, **params):
 def create_table(table, sql, **params):
     engine = get_engine()
     with engine.connect() as con:
-        _create_table(table, con, sql, **params)
+        _create_table(table.lower(), con, sql, **params)
 
 
 def create_activites_table():

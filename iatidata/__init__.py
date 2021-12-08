@@ -934,7 +934,7 @@ def export_sqlite():
 
         for object_type, object_details in object_details.items():
 
-            target_object_type = object_type
+            target_object_type = re.sub("[^0-9a-zA-Z]+", "_", object_type.lower())
             if object_type == "transaction":
                 target_object_type = "trans"
 
@@ -955,12 +955,13 @@ def export_sqlite():
             print(f"importing table {object_type}")
             with open(f"{tmpdirname}/{object_type}.csv", "wb") as out:
                 dbapi_conn = connection.connection
-                copy_sql = f'COPY "{re.sub("[^0-9a-zA-Z]+", "_", object_type.lower())}" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
+                copy_sql = f'COPY "{object_type.lower()}" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
                 cur = dbapi_conn.cursor()
                 cur.copy_expert(copy_sql, out)
 
             _, field_def = create_field_sql(object_details, sqlite=True)
 
+            
 
             import_sql = f"""
             .mode csv

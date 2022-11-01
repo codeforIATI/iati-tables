@@ -633,18 +633,18 @@ def create_field_sql(object_details, sqlite=False):
 
         type = item["type"]
         if type == "number":
-            field = f'x."{name}" numeric'
+            field = f'"{name}" numeric'
         elif type == "array":
-            field = f'x."{name}" JSONB'
+            field = f'"{name}" JSONB'
         elif type == "boolean":
-            field = f'x."{name}" boolean'
+            field = f'"{name}" boolean'
         elif type == "datetime":
-            field = f'x."{name}" timestamp'
+            field = f'"{name}" timestamp'
         else:
-            field = f'x."{name}" TEXT'
+            field = f'"{name}" TEXT'
 
         lowered_fields.add(name.lower())
-        fields.append(f'"{name}"')
+        fields.append(f'x."{name}"')
         fields_with_type.append(field)
 
     return ", ".join(fields), ", ".join(fields_with_type)

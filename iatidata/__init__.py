@@ -633,15 +633,15 @@ def create_field_sql(object_details, sqlite=False):
 
         type = item["type"]
         if type == "number":
-            field = f'"{name}" numeric'
+            field = f'x."{name}" numeric'
         elif type == "array":
-            field = f'"{name}" JSONB'
+            field = f'x."{name}" JSONB'
         elif type == "boolean":
-            field = f'"{name}" boolean'
+            field = f'x."{name}" boolean'
         elif type == "datetime":
-            field = f'"{name}" timestamp'
+            field = f'x."{name}" timestamp'
         else:
-            field = f'"{name}" TEXT'
+            field = f'x."{name}" TEXT'
 
         lowered_fields.add(name.lower())
         fields.append(f'"{name}"')
@@ -666,7 +666,7 @@ def postgres_tables(drop_release_objects=False):
         field_sql, as_sql = create_field_sql(object_detail)
         table_sql = f"""
            SELECT prefix, {field_sql}
-           FROM _activity_objects, jsonb_to_record(object) AS ({as_sql})
+           FROM _activity_objects, jsonb_to_record(object) AS x({as_sql})
            WHERE object_type = :object_type
         """
         create_table(object_type, table_sql, object_type=object_type)

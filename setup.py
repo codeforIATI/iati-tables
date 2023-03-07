@@ -5,7 +5,7 @@ from setuptools.command.install import install
 install_requires = [
     'lxml',
     'xmlschema',
-    'sqlalchemy',
+    'sqlalchemy<2',
     'psycopg2-binary',
     'click',
     'boto3',

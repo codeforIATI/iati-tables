@@ -402,7 +402,7 @@ def traverse_object(obj, emit_object, full_path=tuple(), no_index_path=tuple()):
                 if isinstance(narrative, dict):
                     lang = narrative.get(
                         "@{http://www.w3.org/XML/1998/namespace}lang", ""
-                    )
+                    ) or ""
                     narrative = f"{lang.upper()}: {narrative.get('$', '')}"
                 narratives.append(narrative)
             obj["narrative"] = ", ".join(narratives)

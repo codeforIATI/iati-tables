@@ -1017,7 +1017,7 @@ def export_sqlite():
 
 
 def export_csv():
-    with get_engine(schema).begin() as connection, zipfile.ZipFile(f"{output_dir}/iati_csv.zip", "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+    with get_engine().begin() as connection, zipfile.ZipFile(f"{output_dir}/iati_csv.zip", "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
         result = list(
             connection.execute(
                 "SELECT table_name FROM _tables"

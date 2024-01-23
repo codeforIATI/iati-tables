@@ -1,0 +1,9 @@
+lxml
+xmlschema
+sqlalchemy<2
+psycopg2-binary
+click
+boto3
+iatikit
+fastavro
+google-cloud-bigquery

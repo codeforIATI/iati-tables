@@ -11,3 +11,14 @@ __iatikitcache__/
 __pycache__
 docs/_build
 .~lock*
+
+# Output data
+activities.json.gz
+iati_csv.zip
+iati.custom.pg_dump
+iati.db.gz
+iati.dump.gz
+iati.sqlite
+iati.sqlite.gz
+iati.sqlite.zip
+stats.json

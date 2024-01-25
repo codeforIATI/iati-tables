@@ -9,7 +9,7 @@ git clone https://github.com/codeforIATI/iati-tables.git
 cd iati-tables
 python3 -m venv .ve
 source .ve/bin/activate
-pip install -r requirements.txt
+pip install -r requirements_dev.txt
 ```
 
 Install postgres, sqlite and zip. e.g. on Ubuntu:
@@ -44,6 +44,12 @@ python -c 'import iatidata; iatidata.run_all(processes=6, sample=50, refresh=Fal
 publishers data processed. A sample size of 50 is pretty quick and generally
 works. Smaller sample sizes, e.g. 1 fail because not all tables get created,
 see https://github.com/codeforIATI/iati-tables/issues/10
+
+Running the tests:
+
+```
+python -m pytest iatidata/
+```
 
 ### Web front-end
 

@@ -28,9 +28,10 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-from collections import OrderedDict
-from lxml import etree as ET
 import sys
+from collections import OrderedDict
+
+from lxml import etree as ET
 
 # Namespaces necessary for opening schema files
 namespaces = {"xsd": "http://www.w3.org/2001/XMLSchema"}

@@ -51,6 +51,15 @@ Running the tests:
 python -m pytest iatidata/
 ```
 
+Linting:
+
+```
+isort iatidata
+black iatidata
+flake8 iatidata
+```
+
+
 ### Web front-end
 
 Install Node JS 20. e.g. on Ubuntu:

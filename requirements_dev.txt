@@ -4,6 +4,8 @@
 #
 #    pip-compile requirements_dev.in
 #
+black==23.12.1
+    # via -r requirements_dev.in
 boto3==1.34.19
     # via -r requirements.txt
 botocore==1.34.19
@@ -24,7 +26,9 @@ charset-normalizer==3.3.2
     #   -r requirements.txt
     #   requests
 click==8.1.7
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   black
 configparser==6.0.0
     # via
     #   -r requirements.txt
@@ -37,6 +41,8 @@ exceptiongroup==1.2.0
     # via pytest
 fastavro==1.9.3
     # via -r requirements.txt
+flake8==7.0.0
+    # via -r requirements_dev.in
 google-api-core==2.15.0
     # via
     #   -r requirements.txt
@@ -75,6 +81,8 @@ idna==3.6
     #   requests
 iniconfig==2.0.0
     # via pytest
+isort==5.13.2
+    # via -r requirements_dev.in
 jmespath==1.0.1
     # via
     #   -r requirements.txt
@@ -84,11 +92,20 @@ lxml==5.1.0
     # via
     #   -r requirements.txt
     #   iatikit
+mccabe==0.7.0
+    # via flake8
+mypy-extensions==1.0.0
+    # via black
 packaging==23.2
     # via
     #   -r requirements.txt
+    #   black
     #   google-cloud-bigquery
     #   pytest
+pathspec==0.12.1
+    # via black
+platformdirs==4.1.0
+    # via black
 pluggy==1.4.0
     # via pytest
 protobuf==4.25.2
@@ -107,6 +124,10 @@ pyasn1-modules==0.3.0
     # via
     #   -r requirements.txt
     #   google-auth
+pycodestyle==2.11.1
+    # via flake8
+pyflakes==3.2.0
+    # via flake8
 pytest==7.4.4
     # via -r requirements_dev.in
 python-dateutil==2.8.2
@@ -135,7 +156,11 @@ six==1.16.0
 sqlalchemy==1.4.51
     # via -r requirements.txt
 tomli==2.0.1
-    # via pytest
+    # via
+    #   black
+    #   pytest
+typing-extensions==4.9.0
+    # via black
 urllib3==2.0.7
     # via
     #   -r requirements.txt

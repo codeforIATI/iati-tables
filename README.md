@@ -54,11 +54,11 @@ python -m pytest iatidata/
 Linting:
 
 ```
-isort iatidata
-black iatidata
-flake8 iatidata
+isort iatidata/
+black iatidata/
+flake8 iatidata/
+mypy iatidata/
 ```
-
 
 ### Web front-end
 

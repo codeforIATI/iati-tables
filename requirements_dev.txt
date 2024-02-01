@@ -92,10 +92,16 @@ lxml==5.1.0
     # via
     #   -r requirements.txt
     #   iatikit
+lxml-stubs==0.5.1
+    # via -r requirements_dev.in
 mccabe==0.7.0
     # via flake8
+mypy==1.8.0
+    # via -r requirements_dev.in
 mypy-extensions==1.0.0
-    # via black
+    # via
+    #   black
+    #   mypy
 packaging==23.2
     # via
     #   -r requirements.txt
@@ -158,13 +164,19 @@ sqlalchemy==1.4.51
 tomli==2.0.1
     # via
     #   black
+    #   mypy
     #   pytest
+types-requests==2.31.0.20240125
+    # via -r requirements_dev.in
 typing-extensions==4.9.0
-    # via black
+    # via
+    #   black
+    #   mypy
 urllib3==2.0.7
     # via
     #   -r requirements.txt
     #   botocore
     #   requests
+    #   types-requests
 xmlschema==3.0.1
     # via -r requirements.txt

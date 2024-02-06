@@ -300,6 +300,7 @@ def save_all(parts=5, sample=None, refresh=False):
         if sample and num > sample:
             break
 
+    print("Loading registry data into database")
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for job in executor.map(save_part, buckets.items()):
             print(f"DONE {job}")
@@ -538,7 +539,7 @@ DATE_RE = r"^(\d{4})-(\d{2})-(\d{2})([T ](\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d
 
 
 def schema_analysis():
-    print("doing schema analysis")
+    print("Creating tables '_fields' and '_tables'")
     create_table(
         "_object_type_aggregate",
         f"""SELECT

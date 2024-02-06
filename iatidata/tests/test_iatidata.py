@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 from lxml import etree
 
-from iatidata import sort_iati_element, traverse_object
+from iatidata import path_info, sort_iati_element, traverse_object
 
 
 def test_sort_iati_element():
@@ -169,3 +169,35 @@ def test_traverse_object_lists_of_dicts():
         ),
     ]
     assert result == expected_result
+
+
+def test_path_info():
+    full_path = ("result", 12, "indicator", 3, "period", 0, "actual", 0)
+    no_index_path = ("result", "indicator", "period", "actual")
+    (
+        object_key,
+        parent_keys_list,
+        parent_keys_no_index,
+        object_type,
+        parent_keys,
+    ) = path_info(full_path, no_index_path)
+
+    assert object_key == "result.12.indicator.3.period.0.actual.0"
+    assert parent_keys_list == [
+        "result.12",
+        "result.12.indicator.3",
+        "result.12.indicator.3.period.0",
+    ]
+    assert parent_keys_no_index == [
+        "result",
+        "result_indicator",
+        "result_indicator_period",
+    ]
+    assert object_type == "result_indicator_period_actual"
+    assert parent_keys == (
+        {
+            "result": "result.12",
+            "result_indicator": "result.12.indicator.3",
+            "result_indicator_period": "result.12.indicator.3.period.0",
+        },
+    )

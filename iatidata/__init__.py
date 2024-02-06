@@ -369,7 +369,9 @@ def flatten_object(obj, current_path="", no_index_path=tuple()):
 
 
 @functools.lru_cache(1000)
-def path_info(full_path, no_index_path):
+def path_info(
+    full_path: tuple[str | int, ...], no_index_path: tuple[str, ...]
+) -> tuple[str, list[str], list[str], str, tuple[dict[str, str], ...]]:
     all_paths = []
     for num, part in enumerate(full_path):
         if isinstance(part, int):

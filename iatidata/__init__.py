@@ -213,7 +213,7 @@ def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=Non
         )
     )
 
-    schama_dict = get_sorted_schema_dict()
+    schema_dict = get_sorted_schema_dict()
 
     for activity in dataset_etree.findall("iati-activity"):
         version = dataset_etree.get("version", "1.01")
@@ -224,7 +224,7 @@ def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=Non
         if version.startswith("1"):
             activities = transform(activities).getroot()
 
-        sort_iati_element(activities.getchildren()[0], schama_dict)
+        sort_iati_element(activities.getchildren()[0], schema_dict)
 
         activity, error = xmlschema.to_dict(
             activities, schema=schema, validation="lax", decimal_type=float
@@ -302,7 +302,7 @@ def save_all(parts=5, sample=None, refresh=False):
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for job in executor.map(save_part, buckets.items()):
-            print("DONE {job}")
+            print(f"DONE {job}")
             continue
 
 
@@ -451,7 +451,7 @@ def create_rows(result):
     # get activity dates before traversal remove them
     activity_dates = result.activity.get("activity-date", []) or []
 
-    for object, full_path, no_index_path in traverse_object(result.activity, 1):
+    for object, full_path, no_index_path in traverse_object(result.activity, True):
         (
             object_key,
             parent_keys_list,

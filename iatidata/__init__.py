@@ -15,6 +15,7 @@ import zipfile
 from collections import defaultdict
 from io import StringIO
 from textwrap import dedent
+from typing import Any, Iterator
 
 import iatikit
 import requests
@@ -390,7 +391,9 @@ def path_info(full_path, no_index_path):
     return object_key, parent_keys_list, parent_keys_no_index, object_type, parent_keys
 
 
-def traverse_object(obj, emit_object, full_path=tuple(), no_index_path=tuple()):
+def traverse_object(
+    obj: dict[str, Any], emit_object: bool, full_path=tuple(), no_index_path=tuple()
+) -> Iterator[Any]:
     for original_key, value in list(obj.items()):
         key = original_key.replace("-", "")
 

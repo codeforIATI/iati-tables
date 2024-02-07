@@ -15,6 +15,7 @@ import zipfile
 from collections import defaultdict
 from io import StringIO
 from textwrap import dedent
+from typing import Any, Iterator
 
 import iatikit
 import requests
@@ -212,7 +213,7 @@ def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=Non
         )
     )
 
-    schama_dict = get_sorted_schema_dict()
+    schema_dict = get_sorted_schema_dict()
 
     for activity in dataset_etree.findall("iati-activity"):
         version = dataset_etree.get("version", "1.01")
@@ -223,7 +224,7 @@ def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=Non
         if version.startswith("1"):
             activities = transform(activities).getroot()
 
-        sort_iati_element(activities.getchildren()[0], schama_dict)
+        sort_iati_element(activities.getchildren()[0], schema_dict)
 
         activity, error = xmlschema.to_dict(
             activities, schema=schema, validation="lax", decimal_type=float
@@ -299,9 +300,10 @@ def save_all(parts=5, sample=None, refresh=False):
         if sample and num > sample:
             break
 
+    print("Loading registry data into database")
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for job in executor.map(save_part, buckets.items()):
-            print("DONE {job}")
+            print(f"DONE {job}")
             continue
 
 
@@ -368,7 +370,9 @@ def flatten_object(obj, current_path="", no_index_path=tuple()):
 
 
 @functools.lru_cache(1000)
-def path_info(full_path, no_index_path):
+def path_info(
+    full_path: tuple[str | int, ...], no_index_path: tuple[str, ...]
+) -> tuple[str, list[str], list[str], str, tuple[dict[str, str], ...]]:
     all_paths = []
     for num, part in enumerate(full_path):
         if isinstance(part, int):
@@ -390,7 +394,9 @@ def path_info(full_path, no_index_path):
     return object_key, parent_keys_list, parent_keys_no_index, object_type, parent_keys
 
 
-def traverse_object(obj, emit_object, full_path=tuple(), no_index_path=tuple()):
+def traverse_object(
+    obj: dict[str, Any], emit_object: bool, full_path=tuple(), no_index_path=tuple()
+) -> Iterator[Any]:
     for original_key, value in list(obj.items()):
         key = original_key.replace("-", "")
 
@@ -446,7 +452,7 @@ def create_rows(result):
     # get activity dates before traversal remove them
     activity_dates = result.activity.get("activity-date", []) or []
 
-    for object, full_path, no_index_path in traverse_object(result.activity, 1):
+    for object, full_path, no_index_path in traverse_object(result.activity, True):
         (
             object_key,
             parent_keys_list,
@@ -533,7 +539,7 @@ DATE_RE = r"^(\d{4})-(\d{2})-(\d{2})([T ](\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d
 
 
 def schema_analysis():
-    print("doing schema analysis")
+    print("Creating tables '_fields' and '_tables'")
     create_table(
         "_object_type_aggregate",
         f"""SELECT

@@ -13,7 +13,7 @@
                   class="ml-3"
                   color="grey darken-3"
                   text-color="white"
-                  href="https://colab.research.google.com/drive/15Ahauin2YgloaFEwiGjqbnv7L91xNUua"
+                  :href="colabUrl"
                 >
                 Colab Notebook
                 </v-chip>
@@ -21,14 +21,14 @@
                   class="ml-3"
                   color="deep-purple darken-4"
                   text-color="white"
-                  href="https://iati.fra1.digitaloceanspaces.com/iati.sqlite.zip">
+                  :href="dataUrl + '/iati.sqlite.zip'">
                 SQLite Zip
                 </v-chip>
                 <v-chip
                   class="ml-3"
                   color="red darken-3"
                   text-color="white"
-                  href="https://iati.fra1.digitaloceanspaces.com/iati_csv.zip"
+                  :href="dataUrl + '/iati_csv.zip'"
                 >
                 CSV Zip
                 </v-chip>
@@ -36,7 +36,7 @@
                   class="ml-3"
                   color="blue darken-3"
                   text-color="white"
-                  href="https://iati.fra1.digitaloceanspaces.com/iati.custom.pg_dump"
+                  :href="dataUrl + '/iati.custom.pg_dump'"
                 >
                 PG Dump (custom)
                 </v-chip>
@@ -44,7 +44,7 @@
                   class="ml-3"
                   color="blue darken-2"
                   text-color="white"
-                  href="https://iati.fra1.digitaloceanspaces.com/iati.dump.gz"
+                  :href="dataUrl + '/iati.dump.gz'"
                 >
                 PG Dump (gzip)
                 </v-chip>
@@ -52,7 +52,7 @@
                   class="ml-3"
                   color="green darken-4"
                   text-color="white"
-                  href="https://datasette.codeforiati.org"
+                  :href="datasetteUrl"
                 >
                 Datasette
                 </v-chip>
@@ -147,7 +147,10 @@ export default {
   components: { TableModal },
   data: () => ({
     stats: { tables: [] },
-    lastUpdated: 'Unavailable'
+    lastUpdated: 'Unavailable',
+    dataUrl: process.env.VUE_APP_DATA_URL,
+    datasetteUrl: process.env.VUE_APP_DATASETTE_URL,
+    colabUrl: process.env.VUE_APP_COLAB_URL
   }),
   created: function () {
     this.fetchStats()
@@ -159,7 +162,7 @@ export default {
   },
   methods: {
     fetchStats: async function () {
-      const response = await fetch('https://iati.fra1.digitaloceanspaces.com/stats.json')
+      const response = await fetch(this.dataUrl + '/stats.json')
       const stats = await response.json()
       this.stats = stats
       const lastUpdated = new Date(stats.updated)

@@ -69,8 +69,8 @@
             About
           </v-card-title >
           <v-card-text >
-            <p>IATI data has been transfromed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
-            <p><b>Last Update:</b> {{stats.updated.substring(0, 16)}}</p>
+            <p>IATI data has been transformed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
+            <p><b>Last Update:</b> {{lastUpdated}}</p>
           </v-card-text>
         </v-card>
       </v-col>
@@ -146,7 +146,8 @@ export default {
   name: 'Home',
   components: { TableModal },
   data: () => ({
-    stats: { tables: [] }
+    stats: { tables: [] },
+    lastUpdated: 'Unavailable'
   }),
   created: function () {
     this.fetchStats()
@@ -161,6 +162,8 @@ export default {
       const response = await fetch('https://iati.fra1.digitaloceanspaces.com/stats.json')
       const stats = await response.json()
       this.stats = stats
+      const lastUpdated = new Date(stats.updated)
+      this.lastUpdated = lastUpdated.toGMTString()
       // this.$nextTick(() => VueScrollTo.scrollTo(window.location.hash))
     },
     scrollDone: function (el) {

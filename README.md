@@ -69,20 +69,29 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install nodejs
 ```
 
-Then:
+Install yarn:
 
 ```
 sudo npm install -g yarn
+```
+
+Install dependencies:
+
+```
 cd site
 yarn install
-NODE_OPTIONS="--openssl-legacy-provider" yarn build
 ```
 
-Server the site/dist directory on the root of a webserver.
-
-e.g. for development:
+Start the development server:
 
 ```
+yarn serve
+```
+
+Build and view the site:
+
+```
+yarn build
 cd site/dist
 python3 -m http.server --bind 127.0.0.1 8000
 ```

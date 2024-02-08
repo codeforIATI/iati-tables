@@ -69,7 +69,7 @@
             About
           </v-card-title >
           <v-card-text >
-            <p>IATI data has been transfromed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
+            <p>IATI data has been transformed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
             <p><b>Last Update:</b> {{lastUpdated}}</p>
           </v-card-text>
         </v-card>

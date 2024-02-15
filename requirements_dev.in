@@ -7,3 +7,7 @@ flake8
 mypy
 types-requests
 lxml-stubs
+sphinx
+sphinx-togglebutton
+sphinx-intl
+sphinx_rtd_theme

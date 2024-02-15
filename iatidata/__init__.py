@@ -286,8 +286,8 @@ def save_part(data):
 
                 try:
                     root = dataset.etree.getroot()
-                except Exception as e:
-                    logger.error("Error parsing XML", e)
+                except Exception:
+                    logger.exception("Error parsing XML")
                     continue
 
                 save_converted_xml_to_csv(root, csv_file, prefix, filename)

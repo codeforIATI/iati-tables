@@ -1,5 +1,9 @@
 # IATI Tables
 
+## Documentation
+
+https://iati-tables.readthedocs.io/en/latest/
+
 ## Installation
 
 ### Backend Python code (batch job)

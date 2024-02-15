@@ -96,6 +96,14 @@ cd site/dist
 python3 -m http.server --bind 127.0.0.1 8000
 ```
 
+### Docs
+
+For live preview while writing docs, run the following command and go to http://127.0.0.1:8000
+
+```
+sphinx-autobuild docs docs/_build/html
+```
+
 ## Update requirements
 
 ```

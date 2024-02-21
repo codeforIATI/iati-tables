@@ -63,6 +63,7 @@ def get_engine(db_uri=None, pool_size=1):
 
 
 def _create_table(table, con, sql, **params):
+    logger.debug(f"Creating table: {table}")
     con.execute(
         sa.text(
             f"""DROP TABLE IF EXISTS "{table}";
@@ -80,8 +81,8 @@ def create_table(table, sql, **params):
         _create_table(table.lower(), con, sql, **params)
 
 
-def create_activites_table():
-    logger.info("Creating activities table")
+def create_activities_table():
+    logger.debug("Creating table: _all_activities")
     engine = get_engine()
     with engine.begin() as connection:
         connection.execute(
@@ -96,15 +97,18 @@ def create_activites_table():
 
 def get_standard(refresh=False):
     if not (pathlib.Path() / "__iatikitcache__").is_dir() or refresh:
-        logger.info("Getting standard")
+        logger.info("Downloading standard")
         iatikit.download.standard()
+    else:
+        logger.info("Not refreshing standard")
 
 
 def get_registry(refresh=False):
     if not (pathlib.Path() / "__iatikitcache__").is_dir() or refresh:
-        logger.info("Getting regisitry data")
+        logger.info("Downloading registry data")
         iatikit.download.data()
-
+    else:
+        logger.info("Not refreshing registry data")
     return iatikit.data()
 
 
@@ -262,7 +266,7 @@ def csv_file_to_db(csv_fd):
         cur.copy_expert(copy_sql, csv_fd)
 
 
-def save_part(data):
+def save_part(data: tuple[int, list[iatikit.Dataset]]):
     bucket_num, datasets = data
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -287,7 +291,7 @@ def save_part(data):
                 try:
                     root = dataset.etree.getroot()
                 except Exception:
-                    logger.exception("Error parsing XML")
+                    logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
                     continue
 
                 save_converted_xml_to_csv(root, csv_file, prefix, filename)
@@ -299,21 +303,22 @@ def save_part(data):
 
 
 def save_all(parts=5, sample=None, refresh=False):
-    create_activites_table()
+    create_activities_table()
 
     get_standard(refresh)
     registry = get_registry(refresh)
 
+    logger.info(f"Splitting data into {parts} buckets for loading")
     buckets = defaultdict(list)
     for num, dataset in enumerate(registry.datasets):
         buckets[num % parts].append(dataset)
         if sample and num > sample:
             break
 
-    logger.info("Loading registry data into database...")
+    logger.info("Loading registry data into database")
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for job in executor.map(save_part, buckets.items()):
-            logger.info(f"Finished loading part {job}")
+            logger.debug(f"Finished loading part {job}")
             continue
 
 
@@ -335,7 +340,7 @@ def process_registry(processes=5, sample=None, refresh=False):
 
 
 def process_activities(activities, name):
-    create_activites_table()
+    create_activities_table()
 
     get_standard()
 
@@ -506,10 +511,9 @@ def create_rows(result):
 
 
 def activity_objects():
-    logger.info("Generating activity_objects")
-
     get_codelists_lookup()
 
+    logger.debug("Creating table: _activity_objects")
     engine = get_engine()
     engine.execute(
         """
@@ -525,19 +529,25 @@ def activity_objects():
                 stream_results=True, max_row_buffer=1000
             )
             results = connection.execute(
+                "SELECT COUNT(*) FROM _all_activities"
+            ).fetchone()
+            logger.info(
+                f"Flattening {results.count} activities and writing rows to CSV file"
+            )
+
+            results = connection.execute(
                 "SELECT id, prefix, activity FROM _all_activities"
             )
             paths_csv_file = tmpdirname + "/paths.csv"
 
-            logger.info("Making CSV file")
             with gzip.open(paths_csv_file, "wt", newline="") as csv_file:
                 csv_writer = csv.writer(csv_file)
                 for num, result in enumerate(results):
                     if num % 10000 == 0:
-                        logger.info(f"Written {num} rows")
+                        logger.info(f"Processed {num} activities so far")
                     csv_writer.writerows(create_rows(result))
 
-        logger.info("Uploading Data")
+        logger.info("Loading processed activities from CSV file into database")
         with engine.begin() as connection, gzip.open(paths_csv_file, "rt") as f:
             dbapi_conn = connection.connection
             copy_sql = "COPY _activity_objects FROM STDIN WITH CSV"
@@ -549,7 +559,7 @@ DATE_RE = r"^(\d{4})-(\d{2})-(\d{2})([T ](\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d
 
 
 def schema_analysis():
-    logger.info("Creating tables '_fields' and '_tables'")
+    logger.info("Analysing schema")
     create_table(
         "_object_type_aggregate",
         f"""SELECT
@@ -682,7 +692,7 @@ def create_field_sql(object_details, sqlite=False):
 
 
 def postgres_tables(drop_release_objects=False):
-    logger.info("Making postgres tables")
+    logger.info("Creating postgres tables")
     object_details = defaultdict(list)
     with get_engine().begin() as connection:
         result = list(
@@ -708,6 +718,7 @@ def postgres_tables(drop_release_objects=False):
 
 
 def augment_transaction():
+    logger.info("Augmenting transaction table")
     with get_engine().begin() as connection:
         connection.execute(
             """
@@ -818,6 +829,7 @@ def augment_transaction():
 
 
 def transaction_breakdown():
+    logger.info("Creating transaction_breakdown table")
     with get_engine().begin() as connection:
         connection.execute(
             """
@@ -1025,6 +1037,7 @@ def sql_process():
 
 
 def export_stats():
+    logger.info("Exporting statistics")
     stats_file = output_path / "stats.json"
 
     stats = {"updated": str(datetime.datetime.utcnow())}
@@ -1061,6 +1074,7 @@ def export_stats():
 
 
 def export_sqlite():
+    logger.info("Exporting sqlite format")
     sqlite_file = output_path / "iati.sqlite"
     if sqlite_file.is_file():
         sqlite_file.unlink()
@@ -1103,7 +1117,7 @@ def export_sqlite():
                         f',FOREIGN KEY("{name}") REFERENCES "{foreign_table}"(_link)'
                     )
 
-            logger.info(f"Importing table {object_type}")
+            logger.debug(f"Importing table {object_type}")
             with open(f"{tmpdirname}/{object_type}.csv", "wb") as out:
                 dbapi_conn = connection.connection
                 copy_sql = f'COPY "{object_type.lower()}" TO STDOUT WITH (FORMAT CSV, FORCE_QUOTE *)'
@@ -1163,6 +1177,7 @@ def export_sqlite():
 
 
 def export_csv():
+    logger.info("Exporting CSV format")
     with get_engine().begin() as connection, zipfile.ZipFile(
         f"{output_dir}/iati_csv.zip", "w", compression=zipfile.ZIP_DEFLATED
     ) as zip_file:
@@ -1227,6 +1242,7 @@ def generate_avro_records(result, object_details):
 
 
 def export_bigquery():
+    logger.info("Exporting to BigQuery")
     json_acct_info = json.loads(base64.b64decode(os.environ["GOOGLE_SERVICE_ACCOUNT"]))
 
     credentials = service_account.Credentials.from_service_account_info(json_acct_info)
@@ -1292,6 +1308,7 @@ def export_bigquery():
 
 
 def export_pgdump():
+    logger.info("Exporting pg_dump format")
     subprocess.run(
         [
             "pg_dump",
@@ -1325,6 +1342,7 @@ def export_all():
 
 def upload_all():
     if s3_destination and s3_destination != "-":
+        logger.info("Uploading files to S3")
         files = [
             "stats.json",
             "iati.sqlite.gz",
@@ -1336,7 +1354,6 @@ def upload_all():
             "iati.custom.pg_dump",
             "iati.dump.gz",
         ]
-
         for file in files:
             subprocess.run(
                 ["s3cmd", "put", f"{output_dir}/{file}", s3_destination], check=True

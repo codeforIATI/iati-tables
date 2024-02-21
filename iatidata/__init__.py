@@ -81,7 +81,7 @@ def create_table(table, sql, **params):
         _create_table(table.lower(), con, sql, **params)
 
 
-def create_activites_table():
+def create_activities_table():
     logger.debug("Creating table: _all_activities")
     engine = get_engine()
     with engine.begin() as connection:
@@ -105,7 +105,7 @@ def get_standard(refresh=False):
 
 def get_registry(refresh=False):
     if not (pathlib.Path() / "__iatikitcache__").is_dir() or refresh:
-        logger.info("Downloading regisitry data")
+        logger.info("Downloading registry data")
         iatikit.download.data()
     else:
         logger.info("Not refreshing registry data")
@@ -303,7 +303,7 @@ def save_part(data: tuple[int, list[iatikit.Dataset]]):
 
 
 def save_all(parts=5, sample=None, refresh=False):
-    create_activites_table()
+    create_activities_table()
 
     get_standard(refresh)
     registry = get_registry(refresh)
@@ -340,7 +340,7 @@ def process_registry(processes=5, sample=None, refresh=False):
 
 
 def process_activities(activities, name):
-    create_activites_table()
+    create_activities_table()
 
     get_standard()
 
@@ -544,7 +544,7 @@ def activity_objects():
                 csv_writer = csv.writer(csv_file)
                 for num, result in enumerate(results):
                     if num % 10000 == 0:
-                        logger.info(f"Processed {num} activites so far")
+                        logger.info(f"Processed {num} activities so far")
                     csv_writer.writerows(create_rows(result))
 
         logger.info("Loading processed activities from CSV file into database")

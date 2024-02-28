@@ -1,7 +1,6 @@
 import base64
 import concurrent.futures
 import csv
-import datetime
 import functools
 import gzip
 import json
@@ -15,6 +14,7 @@ import tempfile
 import time
 import zipfile
 from collections import defaultdict
+from datetime import datetime
 from io import StringIO
 from textwrap import dedent
 from typing import Any, Iterator
@@ -653,6 +653,28 @@ def schema_analysis():
                 order,
             )
 
+        results = connection.execute(
+            "SELECT object_type, COUNT(prefix) FROM _activity_objects GROUP BY object_type"
+        )
+
+        for row in results:
+            connection.execute(
+                "INSERT INTO _fields VALUES (%s, 'prefix', 'string', %s,  '', -1)",
+                row.object_type,
+                row.count,
+            )
+
+        connection.execute(
+            """
+            INSERT INTO _fields VALUES (
+                'metadata', 'data_dump_updated_at', 'datetime', 1, 'Time of IATI data dump', 9999
+            );
+            INSERT INTO _fields VALUES (
+                'metadata', 'iati_tables_updated_at', 'datetime', 1, 'Time of IATI tables processing', 9999
+            );
+            """
+        )
+
     create_table(
         "_tables",
         """
@@ -691,13 +713,24 @@ def create_field_sql(object_details, sqlite=False):
     return ", ".join(fields), ", ".join(fields_with_type)
 
 
+def get_data_dump_updated_at() -> datetime:
+    with open(f"{pathlib.Path()}/__iatikitcache__/registry/metadata.json") as f:
+        metadata = json.load(f)
+        return datetime.strptime(metadata.get("updated_at"), "%Y-%m-%dT%H:%M:%SZ")
+
+
 def postgres_tables(drop_release_objects=False):
     logger.info("Creating postgres tables")
     object_details = defaultdict(list)
     with get_engine().begin() as connection:
         result = list(
             connection.execute(
-                "SELECT table_name, field, type FROM _fields order by table_name, field_order, field"
+                """
+                SELECT table_name, field, type
+                FROM _fields
+                WHERE field != 'prefix'
+                ORDER BY table_name, field_order, field
+                """
             )
         )
         for row in result:
@@ -711,6 +744,18 @@ def postgres_tables(drop_release_objects=False):
            WHERE object_type = :object_type
         """
         create_table(object_type, table_sql, object_type=object_type)
+
+    logger.info("Creating table: metadata")
+    with get_engine().begin() as connection:
+        connection.execute(
+            """
+            DROP TABLE IF EXISTS metadata;
+            CREATE TABLE metadata(data_dump_updated_at timestamp, iati_tables_updated_at timestamp);
+            INSERT INTO metadata values(%s, %s);
+            """,
+            get_data_dump_updated_at().isoformat(sep=" ", timespec="seconds"),
+            datetime.utcnow().isoformat(sep=" ", timespec="seconds"),
+        )
 
     if drop_release_objects:
         with get_engine().begin() as connection:
@@ -942,6 +987,7 @@ def transaction_breakdown():
         result = connection.execute(
             """
         select
+            sum(case when prefix is not null then 1 else 0 end) prefix,
             sum(case when _link_activity is not null then 1 else 0 end) _link_activity,
             sum(case when _link_transaction is not null then 1 else 0 end) _link_transaction,
             sum(case when iatiidentifier is not null then 1 else 0 end) iatiidentifier,
@@ -967,6 +1013,7 @@ def transaction_breakdown():
 
         connection.execute(
             """
+            insert into _fields values ('transaction_breakdown','prefix','string',%s,'', -1);
             insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field', 1);
             insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field', 2);
             insert into _fields values (
@@ -1040,8 +1087,14 @@ def export_stats():
     logger.info("Exporting statistics")
     stats_file = output_path / "stats.json"
 
-    stats = {"updated": str(datetime.datetime.utcnow())}
     with get_engine().begin() as connection:
+        stats = {}
+
+        results = connection.execute("SELECT * FROM metadata")
+        metadata = results.fetchone()
+        stats["data_dump_updated_at"] = str(metadata.data_dump_updated_at)
+        stats["updated"] = str(metadata.iati_tables_updated_at)
+
         results = connection.execute(
             "SELECT to_json(_tables) as table FROM _tables order by table_order"
         )
@@ -1128,7 +1181,7 @@ def export_sqlite():
 
             import_sql = f"""
             .mode csv
-            CREATE TABLE "{target_object_type}" (prefix, {field_def} {' '.join(fks)}) ;
+            CREATE TABLE "{target_object_type}" ({field_def} {' '.join(fks)}) ;
             .import '{tmpdirname}/{object_type}.csv' "{target_object_type}" """
 
             logger.debug(import_sql)

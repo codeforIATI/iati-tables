@@ -157,7 +157,7 @@ export default {
   },
   computed: {
     toplevel: function () {
-      return this.stats.tables.filter(table => (!table.table_name.includes('_')) && table.rows > 10000)
+      return this.stats.tables.filter(table => (!table.table_name.includes('_')))
     }
   },
   methods: {

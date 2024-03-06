@@ -89,7 +89,7 @@ def create_activities_table():
             """
             DROP TABLE IF EXISTS _all_activities;
             CREATE TABLE _all_activities(
-                id SERIAL, prefix TEXT, filename TEXT, error TEXT, version TEXT, activity JSONB
+                id SERIAL, prefix TEXT, dataset TEXT, filename TEXT, error TEXT, version TEXT, activity JSONB
             );
             """
         )
@@ -218,7 +218,9 @@ def get_codelists_lookup():
                 ALL_CODELIST_LOOKUP[(path, codelist_value)] = value_name
 
 
-def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=None):
+def save_converted_xml_to_csv(
+    dataset_etree, csv_file, dataset_name, prefix=None, filename=None
+):
     transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
     schema = xmlschema.XMLSchema(
         str(
@@ -249,6 +251,7 @@ def save_converted_xml_to_csv(dataset_etree, csv_file, prefix=None, filename=Non
         csv_file.writerow(
             [
                 prefix,
+                dataset_name,
                 filename,
                 str(error) if error else "",
                 version,
@@ -261,7 +264,7 @@ def csv_file_to_db(csv_fd):
     engine = get_engine()
     with engine.begin() as connection:
         dbapi_conn = connection.connection
-        copy_sql = "COPY _all_activities(prefix, filename, error, version, activity)  FROM STDIN WITH CSV"
+        copy_sql = "COPY _all_activities(prefix, dataset, filename, error, version, activity)  FROM STDIN WITH CSV"
         cur = dbapi_conn.cursor()
         cur.copy_expert(copy_sql, csv_fd)
 
@@ -294,7 +297,9 @@ def save_part(data: tuple[int, list[iatikit.Dataset]]):
                     logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
                     continue
 
-                save_converted_xml_to_csv(root, csv_file, prefix, filename)
+                save_converted_xml_to_csv(
+                    root, csv_file, dataset.name, prefix, filename
+                )
 
         with gzip.open(f"{tmpdirname}/out.csv.gz", "rt") as f:
             csv_file_to_db(f)
@@ -497,6 +502,7 @@ def create_rows(result):
 
         row = dict(
             id=result.id,
+            dataset=result.dataset,
             prefix=result.prefix,
             object_key=object_key,
             parent_keys=json.dumps(parent_keys),
@@ -518,8 +524,15 @@ def activity_objects():
     engine.execute(
         """
         DROP TABLE IF EXISTS _activity_objects;
-        CREATE TABLE _activity_objects(id bigint, prefix TEXT,
-        object_key TEXT, parent_keys JSONB, object_type TEXT, object JSONB);
+        CREATE TABLE _activity_objects(
+            id bigint,
+            dataset TEXT,
+            prefix TEXT,
+            object_key TEXT,
+            parent_keys JSONB,
+            object_type TEXT,
+            object JSONB
+        );
         """
     )
 
@@ -536,7 +549,7 @@ def activity_objects():
             )
 
             results = connection.execute(
-                "SELECT id, prefix, activity FROM _all_activities"
+                "SELECT id, dataset, prefix, activity FROM _all_activities"
             )
             paths_csv_file = tmpdirname + "/paths.csv"
 
@@ -654,14 +667,27 @@ def schema_analysis():
             )
 
         results = connection.execute(
-            "SELECT object_type, COUNT(prefix) FROM _activity_objects GROUP BY object_type"
+            """
+            SELECT
+                object_type,
+                COUNT(prefix) AS count_prefix,
+                COUNT(dataset) AS count_dataset
+            FROM _activity_objects
+            GROUP BY object_type
+            """
         )
-
         for row in results:
             connection.execute(
-                "INSERT INTO _fields VALUES (%s, 'prefix', 'string', %s,  '', -1)",
+                """
+                INSERT INTO _fields VALUES (%s, 'prefix', 'string', %s, '', -1);
+                INSERT INTO _fields VALUES (
+                    %s, 'dataset', 'string', %s, 'The dataset which this row was pulled from.', -1
+                );
+                """,
                 row.object_type,
-                row.count,
+                row.count_prefix,
+                row.object_type,
+                row.count_dataset,
             )
 
         connection.execute(
@@ -729,6 +755,7 @@ def postgres_tables(drop_release_objects=False):
                 SELECT table_name, field, type
                 FROM _fields
                 WHERE field != 'prefix'
+                AND field != 'dataset'
                 ORDER BY table_name, field_order, field
                 """
             )
@@ -739,7 +766,7 @@ def postgres_tables(drop_release_objects=False):
     for object_type, object_detail in object_details.items():
         field_sql, as_sql = create_field_sql(object_detail)
         table_sql = f"""
-           SELECT prefix, {field_sql}
+           SELECT dataset, prefix, {field_sql}
            FROM _activity_objects, jsonb_to_record(object) AS x({as_sql})
            WHERE object_type = :object_type
         """

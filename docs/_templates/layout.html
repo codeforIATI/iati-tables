@@ -2,3 +2,13 @@
 
 {% set css_files = css_files + ["_static/basic.css"] %}
 
+{%- block extrahead %} 
+<script type="module" src="http://localhost:3333/build/iati-design-system.esm.js"></script>
+<script nomodule src="http://localhost:3333/build/iati-design-system.js"></script>
+<link rel="stylesheet" href="http://localhost:3333/build/iati-design-system.css">
+{% endblock %}
+
+{% block document %}
+<iati-button onclick="alert('Clicked!')">I'm an IATI button</iati-button>
+{{ super() }}
+{% endblock %}

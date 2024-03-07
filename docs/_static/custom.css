@@ -9,3 +9,63 @@
 .admonition.external-link > .admonition-title::before {
   content: "\f0c1";
 }
+
+.rst-content .admonition,
+.admonition.note,
+.admonition.seealso {
+  background-color: var(--iati-color-blue-light);
+}
+
+.admonition > .admonition-title,
+.admonition.note > .admonition-title,
+.admonition.seealso > .admonition-title {
+  background-color: var(--iati-color-blue-default);
+}
+
+.admonition.hint,
+.admonition.tip,
+.admonition.important {
+  background-color: var(--iati-color-green-light);
+}
+
+.admonition.hint > .admonition-title,
+.admonition.tip > .admonition-title,
+.admonition.important > .admonition-title {
+  background-color: var(--iati-color-green-default);
+}
+
+.admonition.caution,
+.admonition.warning,
+.admonition.attention {
+  background-color: var(--iati-color-orange-light);
+}
+
+.admonition.caution > .admonition-title,
+.admonition.warning > .admonition-title,
+.admonition.attention > .admonition-title {
+  background-color: var(--iati-color-orange-default);
+}
+
+.admonition.danger,
+.admonition.error {
+  background-color: var(--iati-color-red-light);
+}
+
+.admonition.danger > .admonition-title,
+.admonition.error > .admonition-title {
+  background-color: var(--iati-color-red-default);
+}
+
+.wy-nav-side,
+.wy-side-nav-search,
+.wy-nav-top {
+  background-color: var(--iati-color-teal-default);
+}
+
+.wy-menu > p.caption {
+  color: white;
+}
+
+.rst-content code.literal {
+  color: #404040;
+}

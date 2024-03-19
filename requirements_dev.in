@@ -11,3 +11,4 @@ sphinx
 sphinx-togglebutton
 sphinx-intl
 sphinx_rtd_theme
+sphinx-autobuild

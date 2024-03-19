@@ -77,11 +77,10 @@
       <v-col xl=4 cols=12>
         <v-card elevation="0" color="white">
           <v-card-title >
-            Output Formats
+            Documentation
           </v-card-title >
           <v-card-text >
-            <p>Click on the output formats above to get the data!</p>
-            <p>The Colab Notebook is an online jupyter notebook and gives you a quick way to do custom analysis on the whole of IATI data.</p>
+            <p>Please go to <a href="https://iati-tables.readthedocs.io/">IATI Tables Documentation</a>.</p>
           </v-card-text>
         </v-card>
       </v-col>

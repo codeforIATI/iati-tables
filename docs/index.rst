@@ -17,3 +17,4 @@ IATI data into relational tables and making it available to users in multiple ou
    process
    schema
    output-formats
+   usage

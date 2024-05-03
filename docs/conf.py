@@ -32,6 +32,7 @@
 # ones.
 extensions = [
     "sphinx_rtd_theme",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.todo",
     "sphinx.ext.autodoc",
     "sphinx_togglebutton",

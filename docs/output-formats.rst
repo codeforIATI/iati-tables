@@ -13,6 +13,7 @@ CSV Zip
 =======
 
 The CSV Zip file contains a compressed folder containing a CSV file for each table, which you can explore by importing into a spreadsheet viewer such as Excel or Google Sheets.
+For more information, please see :ref:`Spreadsheets`.
 
 SQLite Zip
 ==========

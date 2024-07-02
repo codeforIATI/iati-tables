@@ -22,13 +22,15 @@ from typing import Any, Iterator, Optional, OrderedDict
 import _csv
 import iatikit
 import requests
-import sqlalchemy as sa
 import xmlschema
 from fastavro import parse_schema, writer
 from google.cloud import bigquery
 from google.cloud.bigquery.dataset import AccessEntry
 from google.oauth2 import service_account
 from lxml import etree
+from sqlalchemy import column, create_engine, insert, table, text
+from sqlalchemy.engine.base import Engine
+from sqlalchemy.engine.row import LegacyRow
 
 from iatidata import sort_iati
 
@@ -51,7 +53,7 @@ s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
 output_path = pathlib.Path(output_dir)
 
 
-def get_engine(db_uri: Any = None, pool_size: int = 1) -> sa.engine.base.Engine:
+def get_engine(db_uri: Any = None, pool_size: int = 1) -> Engine:
     if not db_uri:
         db_uri = os.environ["DATABASE_URL"]
 
@@ -60,25 +62,25 @@ def get_engine(db_uri: Any = None, pool_size: int = 1) -> sa.engine.base.Engine:
     if schema:
         connect_args = {"options": f"-csearch_path={schema}"}
 
-    return sa.create_engine(db_uri, pool_size=pool_size, connect_args=connect_args)
+    return create_engine(db_uri, pool_size=pool_size, connect_args=connect_args)
 
 
 def _create_table(table, con, sql, **params):
     logger.debug(f"Creating table: {table}")
     con.execute(
-        sa.text(
-            f"""DROP TABLE IF EXISTS "{table}";
-                CREATE TABLE "{table}"
-                AS
-                {sql};"""
+        text(
+            f"""
+            DROP TABLE IF EXISTS "{table}";
+            CREATE TABLE "{table}" AS {sql};
+            """
         ),
-        **params,
+        {**params},
     )
 
 
 def create_table(table, sql, **params):
     engine = get_engine()
-    with engine.connect() as con:
+    with engine.begin() as con:
         _create_table(table.lower(), con, sql, **params)
 
 
@@ -87,12 +89,14 @@ def create_activities_table():
     engine = get_engine()
     with engine.begin() as connection:
         connection.execute(
-            """
-            DROP TABLE IF EXISTS _all_activities;
-            CREATE TABLE _all_activities(
-                id SERIAL, prefix TEXT, dataset TEXT, filename TEXT, error TEXT, version TEXT, activity JSONB
-            );
-            """
+            text(
+                """
+                DROP TABLE IF EXISTS _all_activities;
+                CREATE TABLE _all_activities(
+                    id SERIAL, prefix TEXT, dataset TEXT, filename TEXT, error TEXT, version TEXT, activity JSONB
+                );
+                """
+            )
         )
 
 
@@ -513,35 +517,38 @@ def activity_objects() -> None:
 
     logger.debug("Creating table: _activity_objects")
     engine = get_engine()
-    engine.execute(
-        """
-        DROP TABLE IF EXISTS _activity_objects;
-        CREATE TABLE _activity_objects(
-            id bigint,
-            dataset TEXT,
-            prefix TEXT,
-            object_key TEXT,
-            parent_keys JSONB,
-            object_type TEXT,
-            object JSONB
-        );
-        """
-    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                DROP TABLE IF EXISTS _activity_objects;
+                CREATE TABLE _activity_objects(
+                    id bigint,
+                    dataset TEXT,
+                    prefix TEXT,
+                    object_key TEXT,
+                    parent_keys JSONB,
+                    object_type TEXT,
+                    object JSONB
+                );
+                """
+            )
+        )
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         with engine.begin() as connection:
             connection = connection.execution_options(
                 stream_results=True, max_row_buffer=1000
             )
-            results: sa.engine.row.LegacyRow = connection.execute(
-                "SELECT COUNT(*) FROM _all_activities"
+            results: LegacyRow = connection.execute(
+                text("SELECT COUNT(*) FROM _all_activities")
             ).fetchone()
             logger.info(
                 f"Flattening {results.count} activities and writing rows to CSV file"
             )
 
             results = connection.execute(
-                "SELECT id, dataset, prefix, activity FROM _all_activities"
+                text("SELECT id, dataset, prefix, activity FROM _all_activities")
             )
             paths_csv_file = tmpdirname + "/paths.csv"
 
@@ -607,14 +614,16 @@ def schema_analysis():
     engine = get_engine()
     with engine.begin() as connection:
         connection.execute(
-            """
-            drop table if exists _fields;
-            create table _fields (table_name TEXT, field TEXT, type TEXT, count INT, docs TEXT, field_order INT)
-        """
+            text(
+                """
+                drop table if exists _fields;
+                create table _fields (table_name TEXT, field TEXT, type TEXT, count INT, docs TEXT, field_order INT)
+                """
+            )
         )
 
         results = connection.execute(
-            "SELECT object_type, key, value_type, count FROM _object_type_fields"
+            text("SELECT object_type, key, value_type, count FROM _object_type_fields")
         )
 
         for object_type, key, value_type, count in results:
@@ -648,49 +657,76 @@ def schema_analysis():
                     if key.endswith("name"):
                         order, docs = schema_lookup.get(path[:-4], [9999, ""])
 
+            fields_table = table(
+                "_fields",
+                column("table_name"),
+                column("field"),
+                column("type"),
+                column("count"),
+                column("docs"),
+                column("field_order"),
+            )
+
             connection.execute(
-                "insert into _fields values (%s, %s, %s, %s,  %s, %s)",
-                object_type,
-                key,
-                value_type,
-                count,
-                docs,
-                order,
+                insert(fields_table).values(
+                    {
+                        "table_name": object_type,
+                        "field": key,
+                        "type": value_type,
+                        "count": count,
+                        "docs": docs,
+                        "field_order": order,
+                    },
+                )
             )
 
         results = connection.execute(
-            """
-            SELECT
-                object_type,
-                COUNT(prefix) AS count_prefix,
-                COUNT(dataset) AS count_dataset
-            FROM _activity_objects
-            GROUP BY object_type
-            """
+            text(
+                """
+                SELECT
+                    object_type,
+                    COUNT(prefix) AS count_prefix,
+                    COUNT(dataset) AS count_dataset
+                FROM _activity_objects
+                GROUP BY object_type
+                """
+            )
         )
         for row in results:
             connection.execute(
-                """
-                INSERT INTO _fields VALUES (%s, 'prefix', 'string', %s, '', -1);
-                INSERT INTO _fields VALUES (
-                    %s, 'dataset', 'string', %s, 'The dataset which this row was pulled from.', -1
-                );
-                """,
-                row.object_type,
-                row.count_prefix,
-                row.object_type,
-                row.count_dataset,
+                insert(fields_table).values(
+                    [
+                        {
+                            "table_name": row.object_type,
+                            "field": "prefix",
+                            "type": "string",
+                            "count": row.count_prefix,
+                            "docs": "",
+                            "field_order": -1,
+                        },
+                        {
+                            "table_name": row.object_type,
+                            "field": "dataset",
+                            "type": "string",
+                            "count": row.count_dataset,
+                            "docs": "The dataset which this row was pulled from.",
+                            "field_order": -1,
+                        },
+                    ],
+                ),
             )
 
         connection.execute(
-            """
-            INSERT INTO _fields VALUES (
-                'metadata', 'data_dump_updated_at', 'datetime', 1, 'Time of IATI data dump', 9999
-            );
-            INSERT INTO _fields VALUES (
-                'metadata', 'iati_tables_updated_at', 'datetime', 1, 'Time of IATI tables processing', 9999
-            );
-            """
+            text(
+                """
+                INSERT INTO _fields VALUES (
+                    'metadata', 'data_dump_updated_at', 'datetime', 1, 'Time of IATI data dump', 9999
+                );
+                INSERT INTO _fields VALUES (
+                    'metadata', 'iati_tables_updated_at', 'datetime', 1, 'Time of IATI tables processing', 9999
+                );
+                """
+            )
         )
 
     create_table(
@@ -743,13 +779,15 @@ def postgres_tables(drop_release_objects=False):
     with get_engine().begin() as connection:
         result = list(
             connection.execute(
-                """
-                SELECT table_name, field, type
-                FROM _fields
-                WHERE field != 'prefix'
-                AND field != 'dataset'
-                ORDER BY table_name, field_order, field
-                """
+                text(
+                    """
+                    SELECT table_name, field, type
+                    FROM _fields
+                    WHERE field != 'prefix'
+                    AND field != 'dataset'
+                    ORDER BY table_name, field_order, field
+                    """
+                )
             )
         )
         for row in result:
@@ -767,13 +805,21 @@ def postgres_tables(drop_release_objects=False):
     logger.info("Creating table: metadata")
     with get_engine().begin() as connection:
         connection.execute(
-            """
-            DROP TABLE IF EXISTS metadata;
-            CREATE TABLE metadata(data_dump_updated_at timestamp, iati_tables_updated_at timestamp);
-            INSERT INTO metadata values(%s, %s);
-            """,
-            get_data_dump_updated_at().isoformat(sep=" ", timespec="seconds"),
-            datetime.utcnow().isoformat(sep=" ", timespec="seconds"),
+            text(
+                """
+                DROP TABLE IF EXISTS metadata;
+                CREATE TABLE metadata(data_dump_updated_at timestamp, iati_tables_updated_at timestamp);
+                INSERT INTO metadata values(:data_dump_updated_at, :iati_tables_updated_at);
+                """
+            ),
+            {
+                "data_dump_updated_at": get_data_dump_updated_at().isoformat(
+                    sep=" ", timespec="seconds"
+                ),
+                "iati_tables_updated_at": datetime.utcnow().isoformat(
+                    sep=" ", timespec="seconds"
+                ),
+            },
         )
 
     if drop_release_objects:
@@ -785,12 +831,14 @@ def augment_transaction():
     logger.info("Augmenting transaction table")
     with get_engine().begin() as connection:
         connection.execute(
-            """
-            drop table if exists _exchange_rates;
-            create table _exchange_rates(
-                date text,rate float,Currency text, frequency text, source text, country_code text, country text
-            );
-        """
+            text(
+                """
+                drop table if exists _exchange_rates;
+                create table _exchange_rates(
+                    date text, rate float, Currency text, frequency text, source text, country_code text, country text
+                );
+                """
+            )
         )
 
         r = requests.get(
@@ -804,12 +852,14 @@ def augment_transaction():
         cur.copy_expert(copy_sql, f)
 
         connection.execute(
-            """
-            drop table if exists _monthly_currency;
-            create table _monthly_currency as
-                select distinct on (substring(date, 1,7), currency) substring(date, 1,7) yearmonth, rate, currency
-                from _exchange_rates;
-        """
+            text(
+                """
+                drop table if exists _monthly_currency;
+                create table _monthly_currency as
+                    select distinct on (substring(date, 1,7), currency) substring(date, 1,7) yearmonth, rate, currency
+                    from _exchange_rates;
+                """
+            )
         )
 
         _create_table(
@@ -856,39 +906,59 @@ def augment_transaction():
             """,
         )
 
-        result = connection.execute(
-            """
-            select
-                sum(case when value_usd is not null then 1 else 0 end) value_usd,
-                sum(case when sector_code is not null then 1 else 0 end) sector_code,
-                sum(case when sector_codename is not null then 1 else 0 end) sector_codename
-            from
-                tmp_transaction
-        """
+        sum_value_usd, sum_sector_code, sum_sector_codename = connection.execute(
+            text(
+                """
+                select
+                    sum(case when value_usd is not null then 1 else 0 end) value_usd,
+                    sum(case when sector_code is not null then 1 else 0 end) sector_code,
+                    sum(case when sector_codename is not null then 1 else 0 end) sector_codename
+                from
+                    tmp_transaction
+                """
+            )
         ).fetchone()
 
         connection.execute(
-            """
-            insert into _fields values(
-                'transaction', 'value_usd', 'number', %s, 'Value in USD', 10000
-            );
-            insert into _fields values(
-                'transaction', 'sector_code', 'string', %s, 'Sector code for default vocabulary', 10001
-            );
-            insert into _fields values(
-                'transaction', 'sector_codename', 'string', %s, 'Sector code name for default vocabulary', 10002
-            );
-        """,
-            *result,
+            text(
+                """
+                insert into _fields values(
+                    'transaction', 'value_usd', 'number', :sum_value_usd, 'Value in USD', 10000
+                );
+                insert into _fields values(
+                    'transaction',
+                    'sector_code',
+                    'string',
+                    :sum_sector_code,
+                    'Sector code for default vocabulary',
+                    10001
+                );
+                insert into _fields values(
+                    'transaction',
+                    'sector_codename',
+                    'string',
+                    :sum_sector_codename,
+                    'Sector code name for default vocabulary',
+                    10002
+                );
+                """
+            ),
+            {
+                "sum_value_usd": sum_value_usd,
+                "sum_sector_code": sum_sector_code,
+                "sum_sector_codename": sum_sector_codename,
+            },
         )
 
         connection.execute(
-            """
-            drop table if exists tmp_transaction_usd;
-            drop table if exists tmp_transaction_sector;
-            drop table if exists transaction;
-            alter table tmp_transaction rename to transaction;
-        """
+            text(
+                """
+                drop table if exists tmp_transaction_usd;
+                drop table if exists tmp_transaction_sector;
+                drop table if exists transaction;
+                alter table tmp_transaction rename to transaction;
+                """
+            )
         )
 
 
@@ -896,204 +966,276 @@ def transaction_breakdown():
     logger.info("Creating transaction_breakdown table")
     with get_engine().begin() as connection:
         connection.execute(
-            """
-        drop table if exists transaction_breakdown;
-        create table transaction_breakdown AS
+            text(
+                """
+                drop table if exists transaction_breakdown;
+                create table transaction_breakdown AS
 
-        with sector_count AS (
-            select
-                _link_activity,
-                code,
-                codename,
-                coalesce(percentage, 100) as percentage,
-                count(*) over activity AS cou,
-                sum(coalesce(percentage, 100)) over activity AS total_percentage
-            FROM sector
-            where coalesce(vocabulary, '1') = '1'
-            and coalesce(percentage, 100) <> 0 window activity as (partition by _link_activity)),
-
-        country_100 AS (
-            SELECT _link_activity from recipientcountry group by 1 having sum(coalesce(percentage, 100)) >= 100
-        ),
-
-        country_region AS (
-            select *, sum(percentage) over (partition by _link_activity) AS total_percentage from
-                (
+                with sector_count AS (
                     select
-                        prefix,
                         _link_activity,
-                        'country' as locationtype,
-                        code as country_code,
-                        codename as country_codename,
-                        '' as region_code ,
-                        '' as region_codename,
-                        coalesce(percentage, 100) as percentage
-                    FROM recipientcountry where coalesce(percentage, 100) <> 0
-
-                    union all
-
-                    select
-                        rr.prefix,
-                        _link_activity,
-                        'region' as locationtype,
-                        '',
-                        '',
-                        code as regioncode,
+                        code,
                         codename,
-                        coalesce(percentage, 100) as percentage
-                    FROM recipientregion rr
-                    LEFT JOIN country_100 c1 using (_link_activity)
-                    WHERE coalesce(vocabulary, '1') = '1'
-                    and coalesce(percentage, 100) <> 0
-                    and c1._link_activity is null
-                ) a
-        )
+                        coalesce(percentage, 100) as percentage,
+                        count(*) over activity AS cou,
+                        sum(coalesce(percentage, 100)) over activity AS total_percentage
+                    FROM sector
+                    where coalesce(vocabulary, '1') = '1'
+                    and coalesce(percentage, 100) <> 0 window activity as (partition by _link_activity)),
 
-        select
-            t.prefix,
-            t._link_activity,
-            t._link as _link_transaction,
-            t.iatiidentifier,
-            t.reportingorg_ref,
-            t.transactiontype_code,
-            t.transactiontype_codename,
-            t.transactiondate_isodate,
-            coalesce(t.sector_code, sc.code) sector_code,
-            coalesce(t.sector_codename, sc.codename) sector_codename,
-            coalesce(t.recipientcountry_code, cr.country_code) recipientcountry_code,
-            coalesce(t.recipientcountry_codename, cr.country_codename) recipientcountry_codename,
-            coalesce(t.recipientregion_code, cr.region_code) recipientregion_code,
-            coalesce(t.recipientregion_codename, cr.region_codename) recipientregion_codename,
-            (
-                value *
-                coalesce(sc.percentage/sc.total_percentage, 1) *
-                coalesce(cr.percentage/cr.total_percentage, 1)
-            ) AS value,
-            t.value_currency,
-            t.value_valuedate,
-            (
-                value_usd *
-                coalesce(sc.percentage/sc.total_percentage, 1) *
-                coalesce(cr.percentage/cr.total_percentage, 1)
-            ) AS value_usd,
-            (
-                coalesce(sc.percentage/sc.total_percentage, 1) *
-                coalesce(cr.percentage/cr.total_percentage, 1)
-            ) AS percentage_used
-        from
-           transaction t
-        left join
-           sector_count sc on t._link_activity = sc._link_activity and t.sector_code is null
-        left join country_region cr
-            on t._link_activity = cr._link_activity
-            and coalesce(t.recipientregion_code, t.recipientcountry_code) is null
-            and cr.total_percentage<>0;
+                country_100 AS (
+                    SELECT _link_activity from recipientcountry group by 1 having sum(coalesce(percentage, 100)) >= 100
+                ),
 
-        insert into _tables
-            select
-                'transaction_breakdown',
-                (
-                    select max(case when table_order = 9999 then 0 else table_order end)
-                    from _tables
-                ) count,
-                (
-                    select count(*)
-                    from transaction_breakdown
-                );
-        """
+                country_region AS (
+                    select *, sum(percentage) over (partition by _link_activity) AS total_percentage from
+                        (
+                            select
+                                prefix,
+                                _link_activity,
+                                'country' as locationtype,
+                                code as country_code,
+                                codename as country_codename,
+                                '' as region_code ,
+                                '' as region_codename,
+                                coalesce(percentage, 100) as percentage
+                            FROM recipientcountry where coalesce(percentage, 100) <> 0
+
+                            union all
+
+                            select
+                                rr.prefix,
+                                _link_activity,
+                                'region' as locationtype,
+                                '',
+                                '',
+                                code as regioncode,
+                                codename,
+                                coalesce(percentage, 100) as percentage
+                            FROM recipientregion rr
+                            LEFT JOIN country_100 c1 using (_link_activity)
+                            WHERE coalesce(vocabulary, '1') = '1'
+                            and coalesce(percentage, 100) <> 0
+                            and c1._link_activity is null
+                        ) a
+                )
+
+                select
+                    t.prefix,
+                    t._link_activity,
+                    t._link as _link_transaction,
+                    t.iatiidentifier,
+                    t.reportingorg_ref,
+                    t.transactiontype_code,
+                    t.transactiontype_codename,
+                    t.transactiondate_isodate,
+                    coalesce(t.sector_code, sc.code) sector_code,
+                    coalesce(t.sector_codename, sc.codename) sector_codename,
+                    coalesce(t.recipientcountry_code, cr.country_code) recipientcountry_code,
+                    coalesce(t.recipientcountry_codename, cr.country_codename) recipientcountry_codename,
+                    coalesce(t.recipientregion_code, cr.region_code) recipientregion_code,
+                    coalesce(t.recipientregion_codename, cr.region_codename) recipientregion_codename,
+                    (
+                        value *
+                        coalesce(sc.percentage/sc.total_percentage, 1) *
+                        coalesce(cr.percentage/cr.total_percentage, 1)
+                    ) AS value,
+                    t.value_currency,
+                    t.value_valuedate,
+                    (
+                        value_usd *
+                        coalesce(sc.percentage/sc.total_percentage, 1) *
+                        coalesce(cr.percentage/cr.total_percentage, 1)
+                    ) AS value_usd,
+                    (
+                        coalesce(sc.percentage/sc.total_percentage, 1) *
+                        coalesce(cr.percentage/cr.total_percentage, 1)
+                    ) AS percentage_used
+                from
+                transaction t
+                left join
+                sector_count sc on t._link_activity = sc._link_activity and t.sector_code is null
+                left join country_region cr
+                    on t._link_activity = cr._link_activity
+                    and coalesce(t.recipientregion_code, t.recipientcountry_code) is null
+                    and cr.total_percentage<>0;
+
+                insert into _tables
+                    select
+                        'transaction_breakdown',
+                        (
+                            select max(case when table_order = 9999 then 0 else table_order end)
+                            from _tables
+                        ) count,
+                        (
+                            select count(*)
+                            from transaction_breakdown
+                        );
+                """
+            )
         )
 
         result = connection.execute(
-            """
-        select
-            sum(case when prefix is not null then 1 else 0 end) prefix,
-            sum(case when _link_activity is not null then 1 else 0 end) _link_activity,
-            sum(case when _link_transaction is not null then 1 else 0 end) _link_transaction,
-            sum(case when iatiidentifier is not null then 1 else 0 end) iatiidentifier,
-            sum(case when reportingorg_ref is not null then 1 else 0 end) reportingorg_ref,
-            sum(case when transactiontype_code is not null then 1 else 0 end) transactiontype_code,
-            sum(case when transactiontype_codename is not null then 1 else 0 end) transactiontype_codename,
-            sum(case when transactiondate_isodate is not null then 1 else 0 end) transactiondate_isodate,
-            sum(case when sector_code is not null then 1 else 0 end) sector_code,
-            sum(case when sector_codename is not null then 1 else 0 end) sector_codename,
-            sum(case when recipientcountry_code is not null then 1 else 0 end) recipientcountry_code,
-            sum(case when recipientcountry_codename is not null then 1 else 0 end) recipientcountry_codenme,
-            sum(case when recipientregion_code is not null then 1 else 0 end) recipientregion_code,
-            sum(case when recipientregion_codename is not null then 1 else 0 end) recipientregion_codename,
-            sum(case when value is not null then 1 else 0 end) "value",
-            sum(case when value_currency is not null then 1 else 0 end) value_currency,
-            sum(case when value_valuedate is not null then 1 else 0 end) value_valuedate,
-            sum(case when value_usd is not null then 1 else 0 end) value_usd,
-            sum(case when percentage_used is not null then 1 else 0 end) percentage_used
-        from
-            transaction_breakdown
-        """
-        )
+            text(
+                """
+                select
+                    sum(case when prefix is not null then 1 else 0 end) prefix,
+                    sum(case when _link_activity is not null then 1 else 0 end) _link_activity,
+                    sum(case when _link_transaction is not null then 1 else 0 end) _link_transaction,
+                    sum(case when iatiidentifier is not null then 1 else 0 end) iatiidentifier,
+                    sum(case when reportingorg_ref is not null then 1 else 0 end) reportingorg_ref,
+                    sum(case when transactiontype_code is not null then 1 else 0 end) transactiontype_code,
+                    sum(case when transactiontype_codename is not null then 1 else 0 end) transactiontype_codename,
+                    sum(case when transactiondate_isodate is not null then 1 else 0 end) transactiondate_isodate,
+                    sum(case when sector_code is not null then 1 else 0 end) sector_code,
+                    sum(case when sector_codename is not null then 1 else 0 end) sector_codename,
+                    sum(case when recipientcountry_code is not null then 1 else 0 end) recipientcountry_code,
+                    sum(case when recipientcountry_codename is not null then 1 else 0 end) recipientcountry_codename,
+                    sum(case when recipientregion_code is not null then 1 else 0 end) recipientregion_code,
+                    sum(case when recipientregion_codename is not null then 1 else 0 end) recipientregion_codename,
+                    sum(case when value is not null then 1 else 0 end) "value",
+                    sum(case when value_currency is not null then 1 else 0 end) value_currency,
+                    sum(case when value_valuedate is not null then 1 else 0 end) value_valuedate,
+                    sum(case when value_usd is not null then 1 else 0 end) value_usd,
+                    sum(case when percentage_used is not null then 1 else 0 end) percentage_used
+                from
+                    transaction_breakdown
+                """
+            )
+        ).fetchone()
 
         connection.execute(
-            """
-            insert into _fields values ('transaction_breakdown','prefix','string',%s,'', -1);
-            insert into _fields values ('transaction_breakdown','_link_activity','string','%s','_link field', 1);
-            insert into _fields values ('transaction_breakdown','_link_transaction','string','%s','_link field', 2);
-            insert into _fields values (
-                'transaction_breakdown',
-                'iatiidentifier',
-                'string',
-                '%s',
-                'A globally unique identifier for the activity.',
-                3
-            );
-            insert into _fields values (
-                'transaction_breakdown',
-                'reportingorg_ref',
-                'string',
-                '%s',
-                'Machine-readable identification string for the organisation issuing the report.',
-                4
-            );
-            insert into _fields values (
-                'transaction_breakdown','transactiontype_code','string','%s','Transaction Type Code', 5
-            );
-            insert into _fields values (
-                'transaction_breakdown','transactiontype_codename','string','%s','Transaction Type Codelist Name', 6
-            );
-            insert into _fields values (
-                'transaction_breakdown','transactiondate_isodate','string','%s','Transaction date', 7
-            );
-            insert into _fields values ('transaction_breakdown','sector_code','string','%s','Sector code', 8);
-            insert into _fields values (
-                'transaction_breakdown','sector_codename','string','%s','Sector code codelist name', 9
-            );
-            insert into _fields values (
-                'transaction_breakdown','recipientcountry_code','string','%s','Recipient Country Code', 10
-            );
-            insert into _fields values (
-                'transaction_breakdown','recipientcountry_codename','string','%s','Recipient Country Code', 11
-            );
-            insert into _fields values (
-                'transaction_breakdown','recipientregion_code','string','%s','Recipient Region Code', 12
-            );
-            insert into _fields values (
-                'transaction_breakdown','recipientregion_codename','string','%s','Recipient Region Codelist Name', 13
-            );
-            insert into _fields values ('transaction_breakdown','value','number','%s','Value', 14);
-            insert into _fields values (
-                'transaction_breakdown','value_currency','string','%s','Transaction Currency', 15
-            );
-            insert into _fields values (
-                'transaction_breakdown','value_valuedate','datetime','%s','Transaction Date', 16
-            );
-            insert into _fields values ('transaction_breakdown','value_usd','number','%s','Value in USD', 17);
-            insert into _fields values (
-                'transaction_breakdown',
-                'percentage_used',
-                'number',
-                '%s',
-                'Percentage of transaction this row represents',
-                18
-            );
-            """,
-            *result,
+            text(
+                """
+                insert into _fields values ('transaction_breakdown','prefix','string',:prefix,'', -1);
+                insert into _fields values (
+                    'transaction_breakdown','_link_activity','string',:_link_activity,'_link field', 1
+                );
+                insert into _fields values (
+                    'transaction_breakdown','_link_transaction','string',:_link_transaction,'_link field', 2
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'iatiidentifier',
+                    'string',
+                    :iatiidentifier,
+                    'A globally unique identifier for the activity.',
+                    3
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'reportingorg_ref',
+                    'string',
+                    :reportingorg_ref,
+                    'Machine-readable identification string for the organisation issuing the report.',
+                    4
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'transactiontype_code',
+                    'string',
+                    :transactiontype_code,
+                    'Transaction Type Code',
+                    5
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'transactiontype_codename',
+                    'string',
+                    :transactiontype_codename,
+                    'Transaction Type Codelist Name',
+                    6
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'transactiondate_isodate',
+                    'string',
+                    :transactiondate_isodate,
+                    'Transaction date',
+                    7
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'sector_code',
+                    'string',
+                    :sector_code,
+                    'Sector code',
+                    8
+                );
+                insert into _fields values (
+                    'transaction_breakdown','sector_codename','string',:sector_codename,'Sector code codelist name', 9
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'recipientcountry_code',
+                    'string',
+                    :recipientcountry_code,
+                    'Recipient Country Code',
+                    10
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'recipientcountry_codename',
+                    'string',
+                    :recipientcountry_codename,
+                    'Recipient Country Code',
+                    11
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'recipientregion_code',
+                    'string',
+                    :recipientregion_code,
+                    'Recipient Region Code',
+                    12
+                );
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'recipientregion_codename',
+                    'string',
+                    :recipientregion_codename,
+                    'Recipient Region Codelist Name',
+                    13
+                );
+                insert into _fields values ('transaction_breakdown','value','number',:value,'Value', 14);
+                insert into _fields values (
+                    'transaction_breakdown','value_currency','string',:value_currency,'Transaction Currency', 15
+                );
+                insert into _fields values (
+                    'transaction_breakdown','value_valuedate','datetime',:value_valuedate,'Transaction Date', 16
+                );
+                insert into _fields values ('transaction_breakdown','value_usd','number',:value_usd,'Value in USD', 17);
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'percentage_used',
+                    'number',
+                    :percentage_used,
+                    'Percentage of transaction this row represents',
+                    18
+                );
+                """
+            ),
+            {
+                "prefix": result.prefix,
+                "_link_activity": result._link_activity,
+                "_link_transaction": result._link_transaction,
+                "iatiidentifier": result.iatiidentifier,
+                "reportingorg_ref": result.reportingorg_ref,
+                "transactiontype_code": result.transactiontype_code,
+                "transactiontype_codename": result.transactiontype_codename,
+                "transactiondate_isodate": result.transactiondate_isodate,
+                "sector_code": result.sector_code,
+                "sector_codename": result.sector_codename,
+                "recipientcountry_code": result.recipientcountry_code,
+                "recipientcountry_codename": result.recipientcountry_codename,
+                "recipientregion_code": result.recipientregion_code,
+                "recipientregion_codename": result.recipientregion_codename,
+                "value": result.value,
+                "value_currency": result.value_currency,
+                "value_valuedate": result.value_valuedate,
+                "value_usd": result.value_usd,
+                "percentage_used": result.percentage_used,
+            },
         )
 
 
@@ -1109,20 +1251,26 @@ def export_stats():
     with get_engine().begin() as connection:
         stats = {}
 
-        results = connection.execute("SELECT * FROM metadata")
+        results = connection.execute(text("SELECT * FROM metadata"))
         metadata = results.fetchone()
         stats["data_dump_updated_at"] = str(metadata.data_dump_updated_at)
         stats["updated"] = str(metadata.iati_tables_updated_at)
 
         results = connection.execute(
-            "SELECT to_json(_tables) as table FROM _tables order by table_order"
+            text("SELECT to_json(_tables) as table FROM _tables order by table_order")
         )
         stats["tables"] = [row.table for row in results]
 
         fields = defaultdict(list)
 
         results = connection.execute(
-            "SELECT table_name, to_json(_fields) as field_info FROM _fields order by table_name, field_order, field"
+            text(
+                """
+                SELECT table_name, to_json(_fields) as field_info
+                FROM _fields
+                ORDER BY table_name, field_order, field
+                """
+            )
         )
 
         for result in results:
@@ -1135,7 +1283,7 @@ def export_stats():
         activities = [
             row.iatiidentifier
             for row in connection.execute(
-                "SELECT iatiidentifier from activity group by 1"
+                text("SELECT iatiidentifier from activity group by 1")
             )
         ]
 
@@ -1158,7 +1306,9 @@ def export_sqlite():
     with tempfile.TemporaryDirectory() as tmpdirname, get_engine().begin() as connection:
         result = list(
             connection.execute(
-                "SELECT table_name, field, type FROM _fields order by  table_name, field_order, field"
+                text(
+                    "SELECT table_name, field, type FROM _fields order by  table_name, field_order, field"
+                )
             )
         )
         for row in result:
@@ -1253,7 +1403,7 @@ def export_csv():
     with get_engine().begin() as connection, zipfile.ZipFile(
         f"{output_dir}/iati_csv.zip", "w", compression=zipfile.ZIP_DEFLATED
     ) as zip_file:
-        result = list(connection.execute("SELECT table_name FROM _tables"))
+        result = list(connection.execute(text("SELECT table_name FROM _tables")))
         for row in result:
             csv_output_path = output_path / f"{row.table_name}.csv"
             with open(f"{csv_output_path}", "wb") as out:
@@ -1352,7 +1502,7 @@ def export_bigquery():
         for object_type, object_details in object_details.items():
             logger.info(f"Loading {object_type}")
             result = connection.execute(
-                sa.text(
+                text(
                     f'SELECT to_jsonb("{object_type.lower()}") AS object FROM "{object_type.lower()}"'
                 )
             )
@@ -1409,7 +1559,7 @@ def export_all():
     try:
         export_bigquery()
     except Exception:
-        logger.warn("Big query failed, proceeding anyway")
+        logger.warning("Big query failed, proceeding anyway")
 
 
 def upload_all():

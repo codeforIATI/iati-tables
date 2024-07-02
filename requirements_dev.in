@@ -6,7 +6,7 @@ isort
 flake8
 mypy
 types-requests
-lxml-stubs
+types-lxml
 sphinx
 sphinx-togglebutton
 sphinx-intl

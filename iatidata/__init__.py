@@ -17,8 +17,9 @@ from collections import defaultdict
 from datetime import datetime
 from io import StringIO
 from textwrap import dedent
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional, OrderedDict
 
+import _csv
 import iatikit
 import requests
 import sqlalchemy as sa
@@ -50,7 +51,7 @@ s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
 output_path = pathlib.Path(output_dir)
 
 
-def get_engine(db_uri=None, pool_size=1):
+def get_engine(db_uri: Any = None, pool_size: int = 1) -> sa.engine.base.Engine:
     if not db_uri:
         db_uri = os.environ["DATABASE_URL"]
 
@@ -112,7 +113,7 @@ def get_registry(refresh=False):
     return iatikit.data()
 
 
-def extract(refresh=False):
+def extract(refresh: bool = False) -> None:
     get_standard(refresh)
     get_registry(refresh)
 
@@ -160,12 +161,14 @@ def get_sorted_schema_dict():
     return schema_dict
 
 
-def sort_iati_element(element, schema_subdict):
+def sort_iati_element(
+    element: etree._Element, schema_subdict: OrderedDict[str, OrderedDict]
+) -> None:
     """
     Sort the given elements children according to the order of schema_subdict.
     """
 
-    def sort(x):
+    def sort(x: etree._Element) -> int:
         try:
             return list(schema_subdict.keys()).index(x.tag)
         except ValueError:
@@ -224,8 +227,12 @@ def get_codelists_lookup():
 
 
 def save_converted_xml_to_csv(
-    dataset_etree, csv_file, dataset_name, prefix=None, filename=None
-):
+    dataset_etree: etree._Element,
+    csv_file: "_csv._writer",
+    dataset_name: str,
+    prefix: Optional[str] = None,
+    filename: Optional[str] = None,
+) -> None:
     transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
     schema = xmlschema.XMLSchema(
         str(
@@ -245,13 +252,13 @@ def save_converted_xml_to_csv(
         if version.startswith("1"):
             activities = transform(activities).getroot()
 
-        sort_iati_element(activities.getchildren()[0], schema_dict)
+        sort_iati_element(activities[0], schema_dict)
 
-        activity, error = xmlschema.to_dict(
-            activities, schema=schema, validation="lax", decimal_type=float
+        xmlschema_to_dict_result: tuple[dict[str, Any], list[Any]] = xmlschema.to_dict(
+            activities, schema=schema, validation="lax", decimal_type=float  # type: ignore
         )
-
-        activity = activity.get("iati-activity", [{}])[0]
+        activities_dict, error = xmlschema_to_dict_result
+        activity_dict = activities_dict.get("iati-activity", [{}])[0]
 
         csv_file.writerow(
             [
@@ -260,7 +267,7 @@ def save_converted_xml_to_csv(
                 filename,
                 str(error) if error else "",
                 version,
-                json.dumps(activity),
+                json.dumps(activity_dict),
             ]
         )
 
@@ -269,12 +276,12 @@ def csv_file_to_db(csv_fd):
     engine = get_engine()
     with engine.begin() as connection:
         dbapi_conn = connection.connection
-        copy_sql = "COPY _all_activities(prefix, dataset, filename, error, version, activity)  FROM STDIN WITH CSV"
+        copy_sql = "COPY _all_activities(prefix, dataset, filename, error, version, activity) FROM STDIN WITH CSV"
         cur = dbapi_conn.cursor()
         cur.copy_expert(copy_sql, csv_fd)
 
 
-def save_part(data: tuple[int, list[iatikit.Dataset]]):
+def load_part(data: tuple[int, list[iatikit.Dataset]]) -> int:
     bucket_num, datasets = data
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -312,24 +319,24 @@ def save_part(data: tuple[int, list[iatikit.Dataset]]):
     return bucket_num
 
 
-def load(parts=5, sample=None):
+def load(processes: int, sample: Optional[int] = None) -> None:
     create_activities_table()
 
-    logger.info(f"Splitting data into {parts} buckets for loading")
+    logger.info(f"Splitting data into {processes} buckets for loading")
     buckets = defaultdict(list)
     for num, dataset in enumerate(iatikit.data().datasets):
-        buckets[num % parts].append(dataset)
+        buckets[num % processes].append(dataset)
         if sample and num > sample:
             break
 
     logger.info("Loading registry data into database")
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        for job in executor.map(save_part, buckets.items()):
+        for job in executor.map(load_part, buckets.items()):
             logger.debug(f"Finished loading part {job}")
             continue
 
 
-def process_registry():
+def process_registry() -> None:
     if schema:
         engine = get_engine()
         engine.execute(
@@ -417,7 +424,7 @@ def path_info(
 
 def traverse_object(
     obj: dict[str, Any], emit_object: bool, full_path=tuple(), no_index_path=tuple()
-) -> Iterator[Any]:
+) -> Iterator[tuple[dict[str, Any], tuple[Any, ...], tuple[str, ...]]]:
     for original_key, value in list(obj.items()):
         key = original_key.replace("-", "")
 
@@ -464,16 +471,18 @@ DATE_MAP = {
 DATE_MAP_BY_FIELD = {value: int(key) for key, value in DATE_MAP.items()}
 
 
-def create_rows(result):
+def create_rows(
+    id: int, dataset: str, prefix: str, activity: dict[str, Any]
+) -> list[list[Any]]:
     rows = []
 
-    if result.activity is None:
+    if activity is None:
         return []
 
     # get activity dates before traversal remove them
-    activity_dates = result.activity.get("activity-date", []) or []
+    activity_dates = activity.get("activity-date", []) or []
 
-    for object, full_path, no_index_path in traverse_object(result.activity, True):
+    for object, full_path, no_index_path in traverse_object(activity, True):
         (
             object_key,
             parent_keys_list,
@@ -482,11 +491,11 @@ def create_rows(result):
             parent_keys,
         ) = path_info(full_path, no_index_path)
 
-        object["_link"] = f'{result.id}{"." if object_key else ""}{object_key}'
-        object["_link_activity"] = str(result.id)
+        object["_link"] = f'{id}{"." if object_key else ""}{object_key}'
+        object["_link_activity"] = str(id)
         if object_type != "activity":
-            object["iatiidentifier"] = result.activity.get("iati-identifier")
-            reporting_org = result.activity.get("reporting-org", {}) or {}
+            object["iatiidentifier"] = activity.get("iati-identifier")
+            reporting_org = activity.get("reporting-org", {}) or {}
             object["reportingorg_ref"] = reporting_org.get("@ref")
 
         if object_type == "activity":
@@ -499,12 +508,12 @@ def create_rows(result):
                     object[DATE_MAP[type]] = date
 
         for no_index, full in zip(parent_keys_no_index, parent_keys_list):
-            object[f"_link_{no_index}"] = f"{result.id}.{full}"
+            object[f"_link_{no_index}"] = f"{id}.{full}"
 
         row = dict(
-            id=result.id,
-            dataset=result.dataset,
-            prefix=result.prefix,
+            id=id,
+            dataset=dataset,
+            prefix=prefix,
             object_key=object_key,
             parent_keys=json.dumps(parent_keys),
             object_type=object_type,
@@ -514,10 +523,11 @@ def create_rows(result):
         )
         rows.append(row)
 
-    return [list(row.values()) for row in rows]
+    result = [list(row.values()) for row in rows]
+    return result
 
 
-def activity_objects():
+def activity_objects() -> None:
     get_codelists_lookup()
 
     logger.debug("Creating table: _activity_objects")
@@ -542,7 +552,7 @@ def activity_objects():
             connection = connection.execution_options(
                 stream_results=True, max_row_buffer=1000
             )
-            results = connection.execute(
+            results: sa.engine.row.LegacyRow = connection.execute(
                 "SELECT COUNT(*) FROM _all_activities"
             ).fetchone()
             logger.info(
@@ -556,10 +566,10 @@ def activity_objects():
 
             with gzip.open(paths_csv_file, "wt", newline="") as csv_file:
                 csv_writer = csv.writer(csv_file)
-                for num, result in enumerate(results):
+                for num, (id, dataset, prefix, activity) in enumerate(results):
                     if num % 10000 == 0:
                         logger.info(f"Processed {num} activities so far")
-                    csv_writer.writerows(create_rows(result))
+                    csv_writer.writerows(create_rows(id, dataset, prefix, activity))
 
         logger.info("Loading processed activities from CSV file into database")
         with engine.begin() as connection, gzip.open(paths_csv_file, "rt") as f:
@@ -1445,9 +1455,11 @@ def upload_all():
             )
 
 
-def run_all(sample=None, refresh=True, processes=5):
+def run_all(
+    sample: Optional[int] = None, refresh: bool = True, processes: int = 5
+) -> None:
     extract(refresh=refresh)
-    load(parts=processes, sample=sample)
+    load(processes=processes, sample=sample)
     process_registry()
     export_all()
     upload_all()

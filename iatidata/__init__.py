@@ -112,6 +112,11 @@ def get_registry(refresh=False):
     return iatikit.data()
 
 
+def extract(refresh=False):
+    get_standard(refresh)
+    get_registry(refresh)
+
+
 def flatten_schema_docs(cur, path=""):
     for field, value in cur.items():
         info = value.get("info")
@@ -307,15 +312,12 @@ def save_part(data: tuple[int, list[iatikit.Dataset]]):
     return bucket_num
 
 
-def save_all(parts=5, sample=None, refresh=False):
+def load(parts=5, sample=None):
     create_activities_table()
-
-    get_standard(refresh)
-    registry = get_registry(refresh)
 
     logger.info(f"Splitting data into {parts} buckets for loading")
     buckets = defaultdict(list)
-    for num, dataset in enumerate(registry.datasets):
+    for num, dataset in enumerate(iatikit.data().datasets):
         buckets[num % parts].append(dataset)
         if sample and num > sample:
             break
@@ -327,7 +329,7 @@ def save_all(parts=5, sample=None, refresh=False):
             continue
 
 
-def process_registry(processes=5, sample=None, refresh=False):
+def process_registry():
     if schema:
         engine = get_engine()
         engine.execute(
@@ -337,7 +339,6 @@ def process_registry(processes=5, sample=None, refresh=False):
             """
         )
 
-    save_all(sample=sample, parts=processes, refresh=refresh)
     activity_objects()
     schema_analysis()
     postgres_tables()
@@ -1445,6 +1446,8 @@ def upload_all():
 
 
 def run_all(sample=None, refresh=True, processes=5):
-    process_registry(refresh=refresh, sample=sample, processes=processes)
+    extract(refresh=refresh)
+    load(parts=processes, sample=sample)
+    process_registry()
     export_all()
     upload_all()

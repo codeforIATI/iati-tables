@@ -352,25 +352,6 @@ def process_registry() -> None:
     sql_process()
 
 
-def process_activities(activities, name):
-    create_activities_table()
-
-    get_standard()
-
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        logger.info("Converting to json")
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "wt", newline="") as f:
-            csv_file = csv.writer(f)
-            save_converted_xml_to_csv(activities, csv_file, name, name)
-
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "rt") as f:
-            csv_file_to_db(f)
-
-    activity_objects()
-    schema_analysis()
-    postgres_tables()
-
-
 def flatten_object(obj, current_path="", no_index_path=tuple()):
     for key, value in list(obj.items()):
         new_no_index_path = no_index_path + (key,)

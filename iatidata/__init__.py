@@ -326,7 +326,7 @@ def load(processes: int, sample: Optional[int] = None) -> None:
     buckets = defaultdict(list)
     for num, dataset in enumerate(iatikit.data().datasets):
         buckets[num % processes].append(dataset)
-        if sample and num > sample:
+        if sample and num >= sample - 1:
             break
 
     logger.info("Loading registry data into database")

@@ -28,9 +28,7 @@ from google.cloud import bigquery
 from google.cloud.bigquery.dataset import AccessEntry
 from google.oauth2 import service_account
 from lxml import etree
-from sqlalchemy import column, create_engine, insert, table, text
-from sqlalchemy.engine.base import Engine
-from sqlalchemy.engine.row import LegacyRow
+from sqlalchemy import Engine, Row, column, create_engine, insert, table, text
 
 from iatidata import sort_iati
 
@@ -343,12 +341,15 @@ def load(processes: int, sample: Optional[int] = None) -> None:
 def process_registry() -> None:
     if schema:
         engine = get_engine()
-        engine.execute(
-            f"""
-            DROP schema IF EXISTS {schema} CASCADE;
-            CREATE schema {schema};
-            """
-        )
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    DROP schema IF EXISTS {schema} CASCADE;
+                    CREATE schema {schema};
+                    """
+                )
+            )
 
     activity_objects()
     schema_analysis()
@@ -540,12 +541,13 @@ def activity_objects() -> None:
             connection = connection.execution_options(
                 stream_results=True, max_row_buffer=1000
             )
-            results: LegacyRow = connection.execute(
+            activity_count: Optional[Row] = connection.execute(
                 text("SELECT COUNT(*) FROM _all_activities")
-            ).fetchone()
-            logger.info(
-                f"Flattening {results.count} activities and writing rows to CSV file"
-            )
+            ).first()
+            if activity_count:
+                logger.info(
+                    f"Flattening {activity_count.count} activities and writing rows to CSV file"
+                )
 
             results = connection.execute(
                 text("SELECT id, dataset, prefix, activity FROM _all_activities")
@@ -1204,7 +1206,14 @@ def transaction_breakdown():
                 insert into _fields values (
                     'transaction_breakdown','value_valuedate','datetime',:value_valuedate,'Transaction Date', 16
                 );
-                insert into _fields values ('transaction_breakdown','value_usd','number',:value_usd,'Value in USD', 17);
+                insert into _fields values (
+                    'transaction_breakdown',
+                    'value_usd',
+                    'number',
+                    :value_usd,
+                    'Value in USD',
+                    17
+                );
                 insert into _fields values (
                     'transaction_breakdown',
                     'percentage_used',

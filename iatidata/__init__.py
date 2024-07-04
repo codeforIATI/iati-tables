@@ -16,11 +16,13 @@ import zipfile
 from collections import defaultdict
 from datetime import datetime
 from io import StringIO
+from itertools import islice
 from textwrap import dedent
 from typing import Any, Iterator, Optional, OrderedDict
 
 import _csv
 import iatikit
+from more_itertools import distribute
 import requests
 import xmlschema
 from fastavro import parse_schema, writer
@@ -322,18 +324,12 @@ def load_part(data: tuple[int, list[iatikit.Dataset]]) -> int:
 
 
 def load(processes: int, sample: Optional[int] = None) -> None:
-    create_activities_table()
-
-    logger.info(f"Splitting data into {processes} buckets for loading")
-    buckets = defaultdict(list)
-    for num, dataset in enumerate(iatikit.data().datasets):
-        buckets[num % processes].append(dataset)
-        if sample and num >= sample - 1:
-            break
-
     logger.info("Loading registry data into database")
+    create_activities_table()
+    datasets_sample = islice(iatikit.data().datasets, sample)
+    chunked_datasets = distribute(processes, list(datasets_sample))
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        for job in executor.map(load_part, buckets.items()):
+        for job in executor.map(load_part, list(enumerate(chunked_datasets))):
             logger.debug(f"Finished loading part {job}")
             continue
 

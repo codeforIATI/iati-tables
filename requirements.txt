@@ -54,6 +54,8 @@ lxml==5.1.0
     # via
     #   -r requirements.in
     #   iatikit
+more-itertools==10.3.0
+    # via -r requirements.in
 packaging==23.2
     # via google-cloud-bigquery
 protobuf==4.25.2

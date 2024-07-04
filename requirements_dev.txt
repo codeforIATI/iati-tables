@@ -116,6 +116,8 @@ markupsafe==2.1.5
     # via jinja2
 mccabe==0.7.0
     # via flake8
+more-itertools==10.3.0
+    # via -r requirements.txt
 mypy==1.8.0
     # via -r requirements_dev.in
 mypy-extensions==1.0.0

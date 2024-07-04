@@ -7,3 +7,4 @@ boto3
 iatikit
 fastavro
 google-cloud-bigquery
+more_itertools

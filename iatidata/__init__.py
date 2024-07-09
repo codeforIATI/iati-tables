@@ -100,26 +100,16 @@ def create_activities_table():
         )
 
 
-def get_standard(refresh=False):
+def extract(refresh: bool = False) -> None:
     if not (pathlib.Path() / "__iatikitcache__").is_dir() or refresh:
         logger.info("Downloading standard")
         iatikit.download.standard()
-    else:
-        logger.info("Not refreshing standard")
-
-
-def get_registry(refresh=False):
-    if not (pathlib.Path() / "__iatikitcache__").is_dir() or refresh:
         logger.info("Downloading registry data")
         iatikit.download.data()
     else:
-        logger.info("Not refreshing registry data")
-    return iatikit.data()
-
-
-def extract(refresh: bool = False) -> None:
-    get_standard(refresh)
-    get_registry(refresh)
+        logger.info(
+            f"Not refreshing registry data, using existing data from {iatikit.data().last_updated}"
+        )
 
 
 def flatten_schema_docs(cur, path=""):

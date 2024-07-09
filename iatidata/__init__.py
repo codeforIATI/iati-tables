@@ -18,11 +18,9 @@ from datetime import datetime
 from io import StringIO
 from itertools import islice
 from textwrap import dedent
-from typing import Any, Iterator, Optional, OrderedDict
+from typing import Any, Iterable, Iterator, Optional, OrderedDict
 
-import _csv
 import iatikit
-from more_itertools import distribute
 import requests
 import xmlschema
 from fastavro import parse_schema, writer
@@ -30,6 +28,7 @@ from google.cloud import bigquery
 from google.cloud.bigquery.dataset import AccessEntry
 from google.oauth2 import service_account
 from lxml import etree
+from more_itertools import distribute
 from sqlalchemy import Engine, Row, column, create_engine, insert, table, text
 
 from iatidata import sort_iati
@@ -51,6 +50,13 @@ schema = os.environ.get("IATI_TABLES_SCHEMA")
 s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
 
 output_path = pathlib.Path(output_dir)
+
+IATI_ACTIVITIES_SCHEMA = xmlschema.XMLSchema(
+    str(
+        pathlib.Path()
+        / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
+    )
+)
 
 
 def get_engine(db_uri: Any = None, pool_size: int = 1) -> Engine:
@@ -220,97 +226,81 @@ def get_codelists_lookup():
                 ALL_CODELIST_LOOKUP[(path, codelist_value)] = value_name
 
 
-def save_converted_xml_to_csv(
-    dataset_etree: etree._Element,
-    csv_file: "_csv._writer",
-    dataset_name: str,
-    prefix: Optional[str] = None,
-    filename: Optional[str] = None,
-) -> None:
-    transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
-    schema = xmlschema.XMLSchema(
-        str(
-            pathlib.Path()
-            / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
+def parse_activities_from_dataset(
+    dataset: etree._Element,
+) -> Iterator[tuple[dict[str, Any], list[xmlschema.XMLSchemaValidationError]]]:
+    """
+    For each activity in the dataset, validates it against the schema, parses it to a dictionary, and yields it in
+    a tuple along with a list of any schema validation errors.
+    """
+    for activity in dataset.findall("iati-activity"):
+        xmlschema_to_dict_result: tuple[
+            dict[str, Any], list[xmlschema.XMLSchemaValidationError]
+        ] = xmlschema.to_dict(
+            activity,  # type: ignore
+            schema=IATI_ACTIVITIES_SCHEMA,
+            validation="lax",
+            decimal_type=float,
         )
-    )
-
-    schema_dict = get_sorted_schema_dict()
-
-    for activity in dataset_etree.findall("iati-activity"):
-        version = dataset_etree.get("version", "1.01")
-
-        activities = etree.Element("iati-activities", version=version)
-        activities.append(activity)
-
-        if version.startswith("1"):
-            activities = transform(activities).getroot()
-
-        sort_iati_element(activities[0], schema_dict)
-
-        xmlschema_to_dict_result: tuple[dict[str, Any], list[Any]] = xmlschema.to_dict(
-            activities, schema=schema, validation="lax", decimal_type=float  # type: ignore
-        )
-        activities_dict, error = xmlschema_to_dict_result
-        activity_dict = activities_dict.get("iati-activity", [{}])[0]
-
-        csv_file.writerow(
-            [
-                prefix,
-                dataset_name,
-                filename,
-                str(error) if error else "",
-                version,
-                json.dumps(activity_dict),
-            ]
-        )
+        yield xmlschema_to_dict_result
 
 
-def csv_file_to_db(csv_fd):
+def load_datasets(datasets: Iterable[iatikit.Dataset]) -> None:
+    """
+    For each dataset, transforms each activity to JSON and saves it as a row in the database.
+    """
     engine = get_engine()
     with engine.begin() as connection:
-        dbapi_conn = connection.connection
-        copy_sql = "COPY _all_activities(prefix, dataset, filename, error, version, activity) FROM STDIN WITH CSV"
-        cur = dbapi_conn.cursor()
-        cur.copy_expert(copy_sql, csv_fd)
+        for dataset in datasets:
+            if dataset.filetype != "activity":
+                continue
 
+            if not dataset.data_path:
+                logger.warn(f"Dataset '{dataset.name}' not found")
+                continue
+            prefix, filename = pathlib.Path(dataset.data_path).parts[-2:]
 
-def load_part(data: tuple[int, list[iatikit.Dataset]]) -> int:
-    bucket_num, datasets = data
+            try:
+                root = dataset.etree.getroot()
+            except Exception:
+                logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
+                continue
 
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        logger.debug(f"{bucket_num}, {tmpdirname}")
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "wt", newline="") as f:
-            csv_file = csv.writer(f)
-
-            for num, dataset in enumerate(datasets):
-                if num % 100 == 0:
-                    logger.debug(f"{bucket_num}, {num}")
-
-                if dataset.filetype != "activity":
-                    continue
-
-                if not dataset.data_path:
-                    logger.warn(f"Dataset '{dataset}' not found")
-                    continue
-
-                path = pathlib.Path(dataset.data_path)
-                prefix, filename = path.parts[-2:]
-
-                try:
-                    root = dataset.etree.getroot()
-                except Exception:
-                    logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
-                    continue
-
-                save_converted_xml_to_csv(
-                    root, csv_file, dataset.name, prefix, filename
+            transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
+            version = root.get("version", "1.01")
+            if version.startswith("1"):
+                logger.warning(
+                    f"Dataset {dataset.name} is version {version}, transforming"
                 )
+                root = transform(root).getroot()
 
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "rt") as f:
-            csv_file_to_db(f)
-
-    return bucket_num
+            connection.execute(
+                insert(
+                    table(
+                        "_all_activities",
+                        column("prefix"),
+                        column("dataset"),
+                        column("filename"),
+                        column("error"),
+                        column("version"),
+                        column("activity"),
+                    )
+                ).values(
+                    [
+                        {
+                            "prefix": prefix,
+                            "dataset": dataset.name,
+                            "filename": filename,
+                            "error": "\n".join(
+                                [f"{error.reason} at {error.path}" for error in errors]
+                            ),
+                            "version": dataset.version,
+                            "activity": json.dumps(activity),
+                        }
+                        for activity, errors in parse_activities_from_dataset(root)
+                    ]
+                ),
+            )
 
 
 def load(processes: int, sample: Optional[int] = None) -> None:
@@ -319,9 +309,8 @@ def load(processes: int, sample: Optional[int] = None) -> None:
     datasets_sample = islice(iatikit.data().datasets, sample)
     chunked_datasets = distribute(processes, list(datasets_sample))
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        for job in executor.map(load_part, list(enumerate(chunked_datasets))):
-            logger.debug(f"Finished loading part {job}")
-            continue
+        futures = [executor.submit(load_datasets, chunk) for chunk in chunked_datasets]
+        concurrent.futures.wait(futures)
 
 
 def process_registry() -> None:

@@ -1,6 +1,5 @@
 import base64
 import concurrent.futures
-import csv
 import functools
 import gzip
 import json
@@ -29,7 +28,7 @@ from google.cloud.bigquery.dataset import AccessEntry
 from google.oauth2 import service_account
 from lxml import etree
 from more_itertools import distribute
-from sqlalchemy import Engine, Row, column, create_engine, insert, table, text
+from sqlalchemy import Engine, column, create_engine, insert, table, text
 
 from iatidata import sort_iati
 
@@ -267,7 +266,7 @@ def load_datasets(datasets: Iterable[iatikit.Dataset]) -> None:
             transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
             version = root.get("version", "1.01")
             if version.startswith("1"):
-                logger.warning(
+                logger.debug(
                     f"Dataset {dataset.name} is version {version}, transforming"
                 )
                 root = transform(root).getroot()
@@ -312,6 +311,7 @@ def load(processes: int, sample: Optional[int] = None) -> None:
 
 
 def process_registry() -> None:
+    logger.info("Starting process step")
     if schema:
         engine = get_engine()
         with engine.begin() as connection:
@@ -382,7 +382,10 @@ def path_info(
 
 
 def traverse_object(
-    obj: dict[str, Any], emit_object: bool, full_path=tuple(), no_index_path=tuple()
+    obj: dict[str, Any],
+    emit_object: bool,
+    full_path: tuple[Any, ...] = tuple(),
+    no_index_path: tuple[Any, ...] = tuple(),
 ) -> Iterator[tuple[dict[str, Any], tuple[Any, ...], tuple[str, ...]]]:
     for original_key, value in list(obj.items()):
         key = original_key.replace("-", "")
@@ -431,10 +434,8 @@ DATE_MAP_BY_FIELD = {value: int(key) for key, value in DATE_MAP.items()}
 
 
 def create_rows(
-    id: int, dataset: str, prefix: str, activity: dict[str, Any]
-) -> list[list[Any]]:
-    rows = []
-
+    id: int, activity: dict[str, Any]
+) -> Iterator[tuple[str, str, str, str]]:
     if activity is None:
         return []
 
@@ -469,21 +470,12 @@ def create_rows(
         for no_index, full in zip(parent_keys_no_index, parent_keys_list):
             object[f"_link_{no_index}"] = f"{id}.{full}"
 
-        row = dict(
-            id=id,
-            dataset=dataset,
-            prefix=prefix,
-            object_key=object_key,
-            parent_keys=json.dumps(parent_keys),
-            object_type=object_type,
-            object=json.dumps(
-                dict(flatten_object(object, no_index_path=no_index_path))
-            ),
+        yield (
+            object_key,
+            json.dumps(parent_keys),
+            object_type,
+            json.dumps(dict(flatten_object(object, no_index_path=no_index_path))),
         )
-        rows.append(row)
-
-    result = [list(row.values()) for row in rows]
-    return result
 
 
 def activity_objects() -> None:
@@ -509,37 +501,44 @@ def activity_objects() -> None:
             )
         )
 
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        with engine.begin() as connection:
-            connection = connection.execution_options(
-                stream_results=True, max_row_buffer=1000
-            )
-            activity_count: Optional[Row] = connection.execute(
-                text("SELECT COUNT(*) FROM _all_activities")
-            ).first()
-            if activity_count:
-                logger.info(
-                    f"Flattening {activity_count.count} activities and writing rows to CSV file"
+    with engine.begin() as read_connection:
+        read_connection = read_connection.execution_options(
+            stream_results=True, max_row_buffer=1000
+        )
+        activities = read_connection.execute(
+            text("SELECT id, dataset, prefix, activity FROM _all_activities")
+        )
+        with engine.begin() as write_connection:
+            for id, dataset, prefix, activity in activities:
+                write_connection.execute(
+                    insert(
+                        table(
+                            "_activity_objects",
+                            column("id"),
+                            column("dataset"),
+                            column("prefix"),
+                            column("object_key"),
+                            column("parent_keys"),
+                            column("object_type"),
+                            column("object"),
+                        )
+                    ).values(
+                        [
+                            {
+                                "id": id,
+                                "dataset": dataset,
+                                "prefix": prefix,
+                                "object_key": object_key,
+                                "parent_keys": parent_keys,
+                                "object_type": object_type,
+                                "object": object,
+                            }
+                            for object_key, parent_keys, object_type, object in create_rows(
+                                id, activity
+                            )
+                        ]
+                    ),
                 )
-
-            results = connection.execute(
-                text("SELECT id, dataset, prefix, activity FROM _all_activities")
-            )
-            paths_csv_file = tmpdirname + "/paths.csv"
-
-            with gzip.open(paths_csv_file, "wt", newline="") as csv_file:
-                csv_writer = csv.writer(csv_file)
-                for num, (id, dataset, prefix, activity) in enumerate(results):
-                    if num % 10000 == 0:
-                        logger.info(f"Processed {num} activities so far")
-                    csv_writer.writerows(create_rows(id, dataset, prefix, activity))
-
-        logger.info("Loading processed activities from CSV file into database")
-        with engine.begin() as connection, gzip.open(paths_csv_file, "rt") as f:
-            dbapi_conn = connection.connection
-            copy_sql = "COPY _activity_objects FROM STDIN WITH CSV"
-            cur = dbapi_conn.cursor()
-            cur.copy_expert(copy_sql, f)
 
 
 DATE_RE = r"^(\d{4})-(\d{2})-(\d{2})([T ](\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d{2}):(\d{2})|Z)?))?$"

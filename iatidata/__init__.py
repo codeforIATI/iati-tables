@@ -82,6 +82,20 @@ def create_table(table, sql, **params):
         _create_table(table.lower(), con, sql, **params)
 
 
+def create_schema():
+    if schema:
+        engine = get_engine()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    DROP schema IF EXISTS {schema} CASCADE;
+                    CREATE schema {schema};
+                    """
+                )
+            )
+
+
 def create_activities_table():
     logger.debug("Creating table: _all_activities")
     engine = get_engine()
@@ -302,6 +316,7 @@ def load_datasets(datasets: Iterable[iatikit.Dataset]) -> None:
 
 def load(processes: int, sample: Optional[int] = None) -> None:
     logger.info("Loading registry data into database")
+    create_schema()
     create_activities_table()
     datasets_sample = islice(iatikit.data().datasets, sample)
     chunked_datasets = distribute(processes, list(datasets_sample))
@@ -312,18 +327,6 @@ def load(processes: int, sample: Optional[int] = None) -> None:
 
 def process_registry() -> None:
     logger.info("Starting process step")
-    if schema:
-        engine = get_engine()
-        with engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"""
-                    DROP schema IF EXISTS {schema} CASCADE;
-                    CREATE schema {schema};
-                    """
-                )
-            )
-
     activity_objects()
     schema_analysis()
     postgres_tables()

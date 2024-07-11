@@ -441,7 +441,7 @@ DATE_MAP_BY_FIELD = {value: int(key) for key, value in DATE_MAP.items()}
 
 
 def create_rows(
-    id: int, activity: dict[str, Any]
+    id: int, dataset: str, prefix: str, activity: dict[str, Any]
 ) -> Iterator[tuple[str, str, str, str]]:
     if activity is None:
         return []
@@ -460,6 +460,8 @@ def create_rows(
 
         object["_link"] = f'{id}{"." if object_key else ""}{object_key}'
         object["_link_activity"] = str(id)
+        object["dataset"] = dataset
+        object["prefix"] = prefix
         if object_type != "activity":
             object["iatiidentifier"] = activity.get("iati-identifier")
             reporting_org = activity.get("reporting-org", {}) or {}
@@ -497,8 +499,6 @@ def activity_objects() -> None:
                 DROP TABLE IF EXISTS _activity_objects;
                 CREATE TABLE _activity_objects(
                     id bigint,
-                    dataset TEXT,
-                    prefix TEXT,
                     object_key TEXT,
                     parent_keys JSONB,
                     object_type TEXT,
@@ -522,8 +522,6 @@ def activity_objects() -> None:
                         table(
                             "_activity_objects",
                             column("id"),
-                            column("dataset"),
-                            column("prefix"),
                             column("object_key"),
                             column("parent_keys"),
                             column("object_type"),
@@ -533,15 +531,13 @@ def activity_objects() -> None:
                         [
                             {
                                 "id": id,
-                                "dataset": dataset,
-                                "prefix": prefix,
                                 "object_key": object_key,
                                 "parent_keys": parent_keys,
                                 "object_type": object_type,
                                 "object": object,
                             }
                             for object_key, parent_keys, object_type, object in create_rows(
-                                id, activity
+                                id, dataset, prefix, activity
                             )
                         ]
                     ),
@@ -624,6 +620,8 @@ def schema_analysis():
                     )
                 else:
                     docs = f"Foreign key to {key[6:]} tables `_link` field"
+            elif key == "dataset" or key == "prefix":
+                order = 0
             elif key == "iatiidentifier":
                 order, docs = 1, "A globally unique identifier for the activity."
             elif key == "reportingorg_ref" and object_type != "activity":
@@ -660,42 +658,6 @@ def schema_analysis():
                         "field_order": order,
                     },
                 )
-            )
-
-        results = connection.execute(
-            text(
-                """
-                SELECT
-                    object_type,
-                    COUNT(prefix) AS count_prefix,
-                    COUNT(dataset) AS count_dataset
-                FROM _activity_objects
-                GROUP BY object_type
-                """
-            )
-        )
-        for row in results:
-            connection.execute(
-                insert(fields_table).values(
-                    [
-                        {
-                            "table_name": row.object_type,
-                            "field": "prefix",
-                            "type": "string",
-                            "count": row.count_prefix,
-                            "docs": "",
-                            "field_order": -1,
-                        },
-                        {
-                            "table_name": row.object_type,
-                            "field": "dataset",
-                            "type": "string",
-                            "count": row.count_dataset,
-                            "docs": "The dataset which this row was pulled from.",
-                            "field_order": -1,
-                        },
-                    ],
-                ),
             )
 
     create_table(
@@ -786,8 +748,6 @@ def postgres_tables(drop_release_objects=False):
                     """
                     SELECT table_name, field, type
                     FROM _fields
-                    WHERE field != 'prefix'
-                    AND field != 'dataset'
                     ORDER BY table_name, field_order, field
                     """
                 )
@@ -799,10 +759,10 @@ def postgres_tables(drop_release_objects=False):
     for object_type, object_detail in object_details.items():
         field_sql, as_sql = create_field_sql(object_detail)
         table_sql = f"""
-           SELECT dataset, prefix, {field_sql}
-           FROM _activity_objects, jsonb_to_record(object) AS x({as_sql})
-           WHERE object_type = :object_type
-        """
+            SELECT {field_sql}
+            FROM _activity_objects, jsonb_to_record(object) AS x({as_sql})
+            WHERE object_type = :object_type
+            """
         create_table(object_type, table_sql, object_type=object_type)
 
     if drop_release_objects:

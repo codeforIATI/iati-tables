@@ -84,6 +84,7 @@ def _create_table(table, con, sql, **params):
 
 
 def create_table(table, sql, **params):
+    logger.info(f"Creating table: {table}")
     engine = get_engine()
     with engine.begin() as con:
         _create_table(table.lower(), con, sql, **params)
@@ -592,6 +593,7 @@ def schema_analysis():
 
     engine = get_engine()
     with engine.begin() as connection:
+        logger.info("Creating table: _fields")
         connection.execute(
             text(
                 """

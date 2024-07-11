@@ -333,6 +333,7 @@ def process_registry() -> None:
     activity_objects()
     schema_analysis()
     postgres_tables()
+    metadata_table()
     sql_process()
 
 
@@ -697,19 +698,6 @@ def schema_analysis():
                 ),
             )
 
-        connection.execute(
-            text(
-                """
-                INSERT INTO _fields VALUES (
-                    'metadata', 'data_dump_updated_at', 'datetime', 1, 'Time of IATI data dump', 9999
-                );
-                INSERT INTO _fields VALUES (
-                    'metadata', 'iati_tables_updated_at', 'datetime', 1, 'Time of IATI tables processing', 9999
-                );
-                """
-            )
-        )
-
     create_table(
         "_tables",
         """
@@ -754,6 +742,40 @@ def get_data_dump_updated_at() -> datetime:
         return datetime.strptime(metadata.get("updated_at"), "%Y-%m-%dT%H:%M:%SZ")
 
 
+def metadata_table():
+    logger.info("Creating table: metadata")
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(
+                """
+                DROP TABLE IF EXISTS metadata;
+                CREATE TABLE metadata(data_dump_updated_at timestamp, iati_tables_updated_at timestamp);
+                INSERT INTO metadata values(:data_dump_updated_at, :iati_tables_updated_at);
+                """
+            ),
+            {
+                "data_dump_updated_at": get_data_dump_updated_at().isoformat(
+                    sep=" ", timespec="seconds"
+                ),
+                "iati_tables_updated_at": datetime.utcnow().isoformat(
+                    sep=" ", timespec="seconds"
+                ),
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO _fields VALUES (
+                    'metadata', 'data_dump_updated_at', 'datetime', 1, 'Time of IATI data dump', 9999
+                );
+                INSERT INTO _fields VALUES (
+                    'metadata', 'iati_tables_updated_at', 'datetime', 1, 'Time of IATI tables processing', 9999
+                );
+                """
+            )
+        )
+
+
 def postgres_tables(drop_release_objects=False):
     logger.info("Creating postgres tables")
     object_details = defaultdict(list)
@@ -782,26 +804,6 @@ def postgres_tables(drop_release_objects=False):
            WHERE object_type = :object_type
         """
         create_table(object_type, table_sql, object_type=object_type)
-
-    logger.info("Creating table: metadata")
-    with get_engine().begin() as connection:
-        connection.execute(
-            text(
-                """
-                DROP TABLE IF EXISTS metadata;
-                CREATE TABLE metadata(data_dump_updated_at timestamp, iati_tables_updated_at timestamp);
-                INSERT INTO metadata values(:data_dump_updated_at, :iati_tables_updated_at);
-                """
-            ),
-            {
-                "data_dump_updated_at": get_data_dump_updated_at().isoformat(
-                    sep=" ", timespec="seconds"
-                ),
-                "iati_tables_updated_at": datetime.utcnow().isoformat(
-                    sep=" ", timespec="seconds"
-                ),
-            },
-        )
 
     if drop_release_objects:
         with get_engine().begin() as connection:

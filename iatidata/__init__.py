@@ -58,6 +58,14 @@ IATI_ACTIVITIES_SCHEMA = xmlschema.XMLSchema(
 )
 
 
+IATI_ORGANISATIONS_SCHEMA = xmlschema.XMLSchema(
+    str(
+        pathlib.Path()
+        / "__iatikitcache__/standard/schemas/203/iati-organisations-schema.xsd"
+    )
+)
+
+
 def get_engine(db_uri: Any = None, pool_size: int = 1) -> Engine:
     if not db_uri:
         db_uri = os.environ["DATABASE_URL"]
@@ -104,20 +112,28 @@ def create_schema():
             )
 
 
-def create_activities_table():
-    logger.debug("Creating table: _all_activities")
-    engine = get_engine()
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                DROP TABLE IF EXISTS _all_activities;
-                CREATE TABLE _all_activities(
-                    id SERIAL, prefix TEXT, dataset TEXT, filename TEXT, error TEXT, version TEXT, activity JSONB
-                );
-                """
+def create_raw_tables():
+    for filetype in ["activity", "organisation"]:
+        table_name = f"_raw_{filetype}"
+        logger.debug(f"Creating table: {table_name}")
+        engine = get_engine()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    DROP TABLE IF EXISTS {table_name};
+                    CREATE TABLE {table_name}(
+                        id SERIAL,
+                        prefix TEXT,
+                        dataset TEXT,
+                        filename TEXT,
+                        error TEXT,
+                        version TEXT,
+                        object JSONB
+                    );
+                    """
+                )
             )
-        )
 
 
 def extract(refresh: bool = False) -> None:
@@ -240,19 +256,37 @@ def get_codelists_lookup():
                 ALL_CODELIST_LOOKUP[(path, codelist_value)] = value_name
 
 
-def parse_activities_from_dataset(
-    dataset: etree._Element,
+def parse_dataset(
+    dataset: iatikit.Dataset,
 ) -> Iterator[tuple[dict[str, Any], list[xmlschema.XMLSchemaValidationError]]]:
     """
-    For each activity in the dataset, validates it against the schema, parses it to a dictionary, and yields it in
-    a tuple along with a list of any schema validation errors.
+    For each activity/organisation object in the dataset, validates it against the schema, parses it to a dictionary,
+    and yields it in a tuple along with a list of any schema validation errors.
     """
-    for activity in dataset.findall("iati-activity"):
+    try:
+        root = dataset.etree.getroot()
+    except Exception:
+        logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
+    if dataset.filetype == "activity":
+        version = root.get("version", "1.01")
+        if version.startswith("1"):
+            logger.debug(f"Dataset {dataset.name} is version {version}, transforming")
+            transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
+            root = transform(root).getroot()
+    element_name = (
+        "iati-activity" if dataset.filetype == "activity" else "iati-organisation"
+    )
+    xml_schema = (
+        IATI_ACTIVITIES_SCHEMA
+        if dataset.filetype == "activity"
+        else IATI_ORGANISATIONS_SCHEMA
+    )
+    for activity in root.findall(element_name):
         xmlschema_to_dict_result: tuple[
             dict[str, Any], list[xmlschema.XMLSchemaValidationError]
         ] = xmlschema.to_dict(
             activity,  # type: ignore
-            schema=IATI_ACTIVITIES_SCHEMA,
+            schema=xml_schema,
             validation="lax",
             decimal_type=float,
         )
@@ -261,43 +295,25 @@ def parse_activities_from_dataset(
 
 def load_datasets(datasets: Iterable[iatikit.Dataset]) -> None:
     """
-    For each dataset, transforms each activity to JSON and saves it as a row in the database.
+    For each dataset, transforms each object to JSON and saves it as a row in the database.
     """
     engine = get_engine()
     with engine.begin() as connection:
         for dataset in datasets:
-            if dataset.filetype != "activity":
-                continue
-
             if not dataset.data_path:
                 logger.warn(f"Dataset '{dataset.name}' not found")
                 continue
             prefix, filename = pathlib.Path(dataset.data_path).parts[-2:]
-
-            try:
-                root = dataset.etree.getroot()
-            except Exception:
-                logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
-                continue
-
-            transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
-            version = root.get("version", "1.01")
-            if version.startswith("1"):
-                logger.debug(
-                    f"Dataset {dataset.name} is version {version}, transforming"
-                )
-                root = transform(root).getroot()
-
             connection.execute(
                 insert(
                     table(
-                        "_all_activities",
+                        f"_raw_{dataset.filetype}",
                         column("prefix"),
                         column("dataset"),
                         column("filename"),
                         column("error"),
                         column("version"),
-                        column("activity"),
+                        column("object"),
                     )
                 ).values(
                     [
@@ -309,9 +325,9 @@ def load_datasets(datasets: Iterable[iatikit.Dataset]) -> None:
                                 [f"{error.reason} at {error.path}" for error in errors]
                             ),
                             "version": dataset.version,
-                            "activity": json.dumps(activity),
+                            "object": json.dumps(object),
                         }
-                        for activity, errors in parse_activities_from_dataset(root)
+                        for object, errors in parse_dataset(dataset)
                     ]
                 ),
             )
@@ -320,7 +336,7 @@ def load_datasets(datasets: Iterable[iatikit.Dataset]) -> None:
 def load(processes: int, sample: Optional[int] = None) -> None:
     logger.info("Loading registry data into database")
     create_schema()
-    create_activities_table()
+    create_raw_tables()
     datasets_sample = islice(iatikit.data().datasets, sample)
     chunked_datasets = distribute(processes, list(datasets_sample))
     with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -365,7 +381,9 @@ def flatten_object(obj, current_path="", no_index_path=tuple()):
 
 @functools.lru_cache(1000)
 def path_info(
-    full_path: tuple[str | int, ...], no_index_path: tuple[str, ...]
+    full_path: tuple[str | int, ...],
+    no_index_path: tuple[str, ...],
+    filetype: str = "activity",
 ) -> tuple[str, list[str], list[str], str, tuple[dict[str, str], ...]]:
     all_paths = []
     for num, part in enumerate(full_path):
@@ -383,7 +401,7 @@ def path_info(
         "_".join(str(key) for key in parent_path if not isinstance(key, int))
         for parent_path in parent_paths
     ]
-    object_type = "_".join(str(key) for key in no_index_path) or "activity"
+    object_type = "_".join(str(key) for key in no_index_path) or filetype
     parent_keys = (dict(zip(parent_keys_no_index, parent_keys_list)),)
     return object_key, parent_keys_list, parent_keys_no_index, object_type, parent_keys
 
@@ -441,40 +459,45 @@ DATE_MAP_BY_FIELD = {value: int(key) for key, value in DATE_MAP.items()}
 
 
 def create_rows(
-    id: int, dataset: str, prefix: str, activity: dict[str, Any]
+    id: int, dataset: str, prefix: str, original_object: dict[str, Any], filetype: str
 ) -> Iterator[tuple[str, str, str, str]]:
-    if activity is None:
+    if original_object is None:
         return []
 
     # get activity dates before traversal remove them
-    activity_dates = activity.get("activity-date", []) or []
+    activity_dates = original_object.get("activity-date", []) or []
 
-    for object, full_path, no_index_path in traverse_object(activity, True):
+    for object, full_path, no_index_path in traverse_object(original_object, True):
         (
             object_key,
             parent_keys_list,
             parent_keys_no_index,
             object_type,
             parent_keys,
-        ) = path_info(full_path, no_index_path)
+        ) = path_info(full_path, no_index_path, filetype)
 
         object["_link"] = f'{id}{"." if object_key else ""}{object_key}'
-        object["_link_activity"] = str(id)
         object["dataset"] = dataset
         object["prefix"] = prefix
-        if object_type != "activity":
-            object["iatiidentifier"] = activity.get("iati-identifier")
-            reporting_org = activity.get("reporting-org", {}) or {}
-            object["reportingorg_ref"] = reporting_org.get("@ref")
 
-        if object_type == "activity":
-            for activity_date in activity_dates:
-                if not isinstance(activity_date, dict):
-                    continue
-                type = activity_date.get("@type")
-                date = activity_date.get("@iso-date")
-                if type and date and type in DATE_MAP:
-                    object[DATE_MAP[type]] = date
+        if filetype == "activity":
+            object["_link_activity"] = str(id)
+            if object_type == "activity":
+                for activity_date in activity_dates:
+                    if not isinstance(activity_date, dict):
+                        continue
+                    type = activity_date.get("@type")
+                    date = activity_date.get("@iso-date")
+                    if type and date and type in DATE_MAP:
+                        object[DATE_MAP[type]] = date
+            else:
+                object["iatiidentifier"] = original_object.get("iati-identifier")
+                reporting_org = original_object.get("reporting-org", {}) or {}
+                object["reportingorg_ref"] = reporting_org.get("@ref")
+        elif filetype == "organisation":
+            object["_link_organisation"] = str(id)
+            if object_type != "organisation":
+                object_type = f"organisation_{object_type}"
 
         for no_index, full in zip(parent_keys_no_index, parent_keys_list):
             object[f"_link_{no_index}"] = f"{id}.{full}"
@@ -490,19 +513,20 @@ def create_rows(
 def activity_objects() -> None:
     get_codelists_lookup()
 
-    logger.debug("Creating table: _activity_objects")
+    logger.debug("Creating table: _all_objects")
     engine = get_engine()
     with engine.begin() as connection:
         connection.execute(
             text(
                 """
-                DROP TABLE IF EXISTS _activity_objects;
-                CREATE TABLE _activity_objects(
+                DROP TABLE IF EXISTS _all_objects;
+                CREATE TABLE _all_objects(
                     id bigint,
                     object_key TEXT,
                     parent_keys JSONB,
                     object_type TEXT,
-                    object JSONB
+                    object JSONB,
+                    filetype TEXT
                 );
                 """
             )
@@ -513,14 +537,20 @@ def activity_objects() -> None:
             stream_results=True, max_row_buffer=1000
         )
         activities = read_connection.execute(
-            text("SELECT id, dataset, prefix, activity FROM _all_activities")
+            text(
+                """
+                (SELECT id, dataset, prefix, object, 'activity' AS filetype FROM _raw_activity ORDER BY id)
+                UNION ALL
+                (SELECT id, dataset, prefix, object, 'organisation' AS filetype FROM _raw_organisation ORDER BY id)
+                """
+            )
         )
         with engine.begin() as write_connection:
-            for id, dataset, prefix, activity in activities:
+            for id, dataset, prefix, original_object, filetype in activities:
                 write_connection.execute(
                     insert(
                         table(
-                            "_activity_objects",
+                            "_all_objects",
                             column("id"),
                             column("object_key"),
                             column("parent_keys"),
@@ -537,7 +567,7 @@ def activity_objects() -> None:
                                 "object": object,
                             }
                             for object_key, parent_keys, object_type, object in create_rows(
-                                id, dataset, prefix, activity
+                                id, dataset, prefix, original_object, filetype
                             )
                         ]
                     ),
@@ -563,7 +593,7 @@ def schema_analysis():
               END value_type,
               count(*)
            FROM
-              _activity_objects ro, jsonb_each(object) each
+              _all_objects ro, jsonb_each(object) each
            GROUP BY 1,2,3;
         """,
     )
@@ -760,7 +790,7 @@ def postgres_tables(drop_release_objects=False):
         field_sql, as_sql = create_field_sql(object_detail)
         table_sql = f"""
             SELECT {field_sql}
-            FROM _activity_objects, jsonb_to_record(object) AS x({as_sql})
+            FROM _all_objects, jsonb_to_record(object) AS x({as_sql})
             WHERE object_type = :object_type
             """
         create_table(object_type, table_sql, object_type=object_type)
@@ -1190,8 +1220,13 @@ def transaction_breakdown():
 
 
 def sql_process():
-    augment_transaction()
-    transaction_breakdown()
+    try:
+        augment_transaction()
+        transaction_breakdown()
+    except Exception:
+        logger.error(
+            "Error augmenting transaction table, this is usually caused by too small of a sample size"
+        )
 
 
 def export_stats():

@@ -50,20 +50,22 @@ s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
 
 output_path = pathlib.Path(output_dir)
 
-IATI_ACTIVITIES_SCHEMA = xmlschema.XMLSchema(
-    str(
-        pathlib.Path()
-        / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
-    )
-)
 
-
-IATI_ORGANISATIONS_SCHEMA = xmlschema.XMLSchema(
-    str(
-        pathlib.Path()
-        / "__iatikitcache__/standard/schemas/203/iati-organisations-schema.xsd"
-    )
-)
+def get_schemas():
+    return {
+        "activity": xmlschema.XMLSchema(
+            str(
+                pathlib.Path()
+                / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
+            )
+        ),
+        "organisation": xmlschema.XMLSchema(
+            str(
+                pathlib.Path()
+                / "__iatikitcache__/standard/schemas/203/iati-organisations-schema.xsd"
+            )
+        ),
+    }
 
 
 def get_engine(db_uri: Any = None, pool_size: int = 1) -> Engine:
@@ -276,17 +278,12 @@ def parse_dataset(
     element_name = (
         "iati-activity" if dataset.filetype == "activity" else "iati-organisation"
     )
-    xml_schema = (
-        IATI_ACTIVITIES_SCHEMA
-        if dataset.filetype == "activity"
-        else IATI_ORGANISATIONS_SCHEMA
-    )
     for activity in root.findall(element_name):
         xmlschema_to_dict_result: tuple[
             dict[str, Any], list[xmlschema.XMLSchemaValidationError]
         ] = xmlschema.to_dict(
             activity,  # type: ignore
-            schema=xml_schema,
+            schema=get_schemas()[dataset.filetype],
             validation="lax",
             decimal_type=float,
         )

@@ -20,7 +20,6 @@ from itertools import islice
 from textwrap import dedent
 from typing import Any, Iterator, Optional, OrderedDict
 
-import _csv
 import iatikit
 import requests
 import xmlschema
@@ -229,13 +228,15 @@ def get_codelists_lookup():
                 ALL_CODELIST_LOOKUP[(path, codelist_value)] = value_name
 
 
-def save_converted_xml_to_csv(
-    dataset_etree: etree._Element,
-    csv_file: "_csv._writer",
-    dataset_name: str,
-    prefix: Optional[str] = None,
-    filename: Optional[str] = None,
-) -> None:
+def parse_activities_from_dataset(
+    dataset: iatikit.Dataset,
+) -> Iterator[tuple[dict[str, Any], list[xmlschema.XMLSchemaValidationError]]]:
+    try:
+        dataset_etree = dataset.etree.getroot()
+    except Exception:
+        logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
+        return
+
     transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
     schema = xmlschema.XMLSchema(
         str(
@@ -263,16 +264,7 @@ def save_converted_xml_to_csv(
         activities_dict, error = xmlschema_to_dict_result
         activity_dict = activities_dict.get("iati-activity", [{}])[0]
 
-        csv_file.writerow(
-            [
-                prefix,
-                dataset_name,
-                filename,
-                str(error) if error else "",
-                version,
-                json.dumps(activity_dict),
-            ]
-        )
+        yield activity_dict, error
 
 
 def csv_file_to_db(csv_fd):
@@ -285,30 +277,44 @@ def csv_file_to_db(csv_fd):
 
 
 def load_dataset(dataset: iatikit.Dataset) -> None:
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "wt", newline="") as f:
-            csv_file = csv.writer(f)
+    if dataset.filetype != "activity":
+        return
 
-            if dataset.filetype != "activity":
-                return
+    if not dataset.data_path:
+        logger.warn(f"Dataset '{dataset}' not found")
+        return
 
-            if not dataset.data_path:
-                logger.warn(f"Dataset '{dataset}' not found")
-                return
+    path = pathlib.Path(dataset.data_path)
+    prefix, filename = path.parts[-2:]
 
-            path = pathlib.Path(dataset.data_path)
-            prefix, filename = path.parts[-2:]
-
-            try:
-                root = dataset.etree.getroot()
-            except Exception:
-                logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
-                return
-
-            save_converted_xml_to_csv(root, csv_file, dataset.name, prefix, filename)
-
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "rt") as f:
-            csv_file_to_db(f)
+    with get_engine().begin() as connection:
+        connection.execute(
+            insert(
+                table(
+                    "_all_activities",
+                    column("prefix"),
+                    column("dataset"),
+                    column("filename"),
+                    column("error"),
+                    column("version"),
+                    column("activity"),
+                )
+            ).values(
+                [
+                    {
+                        "prefix": prefix,
+                        "dataset": dataset.name,
+                        "filename": filename,
+                        "error": "\n".join(
+                            [f"{error.reason} at {error.path}" for error in errors]
+                        ),
+                        "version": dataset.version,
+                        "activity": json.dumps(activity),
+                    }
+                    for activity, errors in parse_activities_from_dataset(dataset)
+                ]
+            )
+        )
 
 
 def create_database_schema():

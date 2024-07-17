@@ -16,6 +16,7 @@ import zipfile
 from collections import defaultdict
 from datetime import datetime
 from io import StringIO
+from itertools import islice
 from textwrap import dedent
 from typing import Any, Iterator, Optional, OrderedDict
 
@@ -283,42 +284,31 @@ def csv_file_to_db(csv_fd):
         cur.copy_expert(copy_sql, csv_fd)
 
 
-def load_part(data: tuple[int, list[iatikit.Dataset]]) -> int:
-    bucket_num, datasets = data
-
+def load_dataset(dataset: iatikit.Dataset) -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        logger.debug(f"{bucket_num}, {tmpdirname}")
         with gzip.open(f"{tmpdirname}/out.csv.gz", "wt", newline="") as f:
             csv_file = csv.writer(f)
 
-            for num, dataset in enumerate(datasets):
-                if num % 100 == 0:
-                    logger.debug(f"{bucket_num}, {num}")
+            if dataset.filetype != "activity":
+                return
 
-                if dataset.filetype != "activity":
-                    continue
+            if not dataset.data_path:
+                logger.warn(f"Dataset '{dataset}' not found")
+                return
 
-                if not dataset.data_path:
-                    logger.warn(f"Dataset '{dataset}' not found")
-                    continue
+            path = pathlib.Path(dataset.data_path)
+            prefix, filename = path.parts[-2:]
 
-                path = pathlib.Path(dataset.data_path)
-                prefix, filename = path.parts[-2:]
+            try:
+                root = dataset.etree.getroot()
+            except Exception:
+                logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
+                return
 
-                try:
-                    root = dataset.etree.getroot()
-                except Exception:
-                    logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
-                    continue
-
-                save_converted_xml_to_csv(
-                    root, csv_file, dataset.name, prefix, filename
-                )
+            save_converted_xml_to_csv(root, csv_file, dataset.name, prefix, filename)
 
         with gzip.open(f"{tmpdirname}/out.csv.gz", "rt") as f:
             csv_file_to_db(f)
-
-    return bucket_num
 
 
 def create_database_schema():
@@ -339,18 +329,17 @@ def load(processes: int, sample: Optional[int] = None) -> None:
     create_database_schema()
     create_activities_table()
 
-    logger.info(f"Splitting data into {processes} buckets for loading")
-    buckets = defaultdict(list)
-    for num, dataset in enumerate(iatikit.data().datasets):
-        buckets[num % processes].append(dataset)
-        if sample and num >= sample - 1:
-            break
+    logger.info(
+        f"Loading {len(list(islice(iatikit.data().datasets, sample)))} datasets"
+    )
+    datasets_sample = islice(iatikit.data().datasets, sample)
 
-    logger.info("Loading registry data into database")
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-        for job in executor.map(load_part, buckets.items()):
-            logger.debug(f"Finished loading part {job}")
-            continue
+    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as executor:
+        futures = [
+            executor.submit(load_dataset, dataset) for dataset in datasets_sample
+        ]
+        concurrent.futures.wait(futures)
+    logger.info("Finished loading registry data into database")
 
 
 def process_registry() -> None:

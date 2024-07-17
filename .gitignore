@@ -22,3 +22,5 @@ iati.sqlite
 iati.sqlite.gz
 iati.sqlite.zip
 stats.json
+profiles/
+logs/

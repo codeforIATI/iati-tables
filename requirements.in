@@ -1,6 +1,6 @@
 lxml
 xmlschema
-sqlalchemy<2
+sqlalchemy
 psycopg2-binary
 click
 boto3

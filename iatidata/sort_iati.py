@@ -30,6 +30,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 import sys
 from collections import OrderedDict
+from typing import Optional
 
 from lxml import etree as ET
 
@@ -117,7 +118,9 @@ class IATISchemaWalker(object):
                 )
         return child_tuples
 
-    def create_schema_dict(self, parent_name, parent_element=None):
+    def create_schema_dict(
+        self, parent_name: str, parent_element: Optional[ET._Element] = None
+    ) -> OrderedDict[str, OrderedDict]:
         """
         Created a nested OrderedDict representing the sturucture (and order!) of
         element in the IATI schema.

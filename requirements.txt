@@ -42,8 +42,6 @@ google-resumable-media==2.7.0
     # via google-cloud-bigquery
 googleapis-common-protos==1.62.0
     # via google-api-core
-greenlet==3.0.3
-    # via sqlalchemy
 iatikit==3.4.0
     # via -r requirements.in
 idna==3.6
@@ -85,8 +83,10 @@ s3transfer==0.10.0
     # via boto3
 six==1.16.0
     # via python-dateutil
-sqlalchemy==1.4.51
+sqlalchemy==2.0.31
     # via -r requirements.in
+typing-extensions==4.12.2
+    # via sqlalchemy
 urllib3==2.0.7
     # via
     #   botocore

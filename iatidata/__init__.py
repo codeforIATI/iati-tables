@@ -98,6 +98,16 @@ def create_activities_table():
         )
 
 
+@functools.lru_cache
+def get_activities_schema() -> xmlschema.XMLSchema10:
+    return xmlschema.XMLSchema(
+        str(
+            pathlib.Path()
+            / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
+        )
+    )
+
+
 def get_standard(refresh=False):
     if not (pathlib.Path() / "__iatikitcache__").is_dir() or refresh:
         logger.info("Downloading standard")
@@ -238,12 +248,7 @@ def parse_activities_from_dataset(
         return
 
     transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
-    schema = xmlschema.XMLSchema(
-        str(
-            pathlib.Path()
-            / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
-        )
-    )
+    schema = get_activities_schema()
 
     schema_dict = get_sorted_schema_dict()
 

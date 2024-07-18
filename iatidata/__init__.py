@@ -50,6 +50,11 @@ s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
 
 output_path = pathlib.Path(output_dir)
 
+VERSION_1_TRANSFORMS = {
+    "activity": etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl"))),
+    "organisation": etree.XSLT(etree.parse(str(this_dir / "iati-organisations.xsl"))),
+}
+
 
 def get_engine(db_uri: Any = None, pool_size: int = 1) -> Engine:
     if not db_uri:
@@ -257,11 +262,10 @@ def parse_dataset(
         logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
         return
 
-    if dataset.filetype == "activity":
-        transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
-        version = dataset_etree.get("version", "1.01")
-        if version.startswith("1"):
-            dataset_etree = transform(dataset_etree).getroot()
+    version = dataset_etree.get("version", "1.01")
+    if version.startswith("1"):
+        logger.info(f"Transforming v1 {dataset.filetype} file")
+        dataset_etree = VERSION_1_TRANSFORMS[dataset.filetype](dataset_etree).getroot()
 
     parent_element_name = (
         "iati-organisations"

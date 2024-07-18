@@ -321,7 +321,22 @@ def load_part(data: tuple[int, list[iatikit.Dataset]]) -> int:
     return bucket_num
 
 
+def create_database_schema():
+    if schema:
+        engine = get_engine()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    DROP schema IF EXISTS {schema} CASCADE;
+                    CREATE schema {schema};
+                    """
+                )
+            )
+
+
 def load(processes: int, sample: Optional[int] = None) -> None:
+    create_database_schema()
     create_activities_table()
 
     logger.info(f"Splitting data into {processes} buckets for loading")
@@ -339,18 +354,6 @@ def load(processes: int, sample: Optional[int] = None) -> None:
 
 
 def process_registry() -> None:
-    if schema:
-        engine = get_engine()
-        with engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"""
-                    DROP schema IF EXISTS {schema} CASCADE;
-                    CREATE schema {schema};
-                    """
-                )
-            )
-
     activity_objects()
     schema_analysis()
     postgres_tables()

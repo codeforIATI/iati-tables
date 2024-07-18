@@ -34,6 +34,7 @@ Run the code:
 ```
 export DATABASE_URL="postgresql://iatitables:PASSWORD_CHANGEME@localhost/iatitables"
 export IATI_TABLES_S3_DESTINATION=-
+export IATI_TABLES_SCHEMA=iati
 python -c 'import iatidata; iatidata.run_all(processes=6, sample=50)'
 ```
 

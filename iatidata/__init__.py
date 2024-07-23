@@ -264,7 +264,7 @@ def parse_dataset(
 
     version = dataset_etree.get("version", "1.01")
     if version.startswith("1"):
-        logger.info(f"Transforming v1 {dataset.filetype} file")
+        logger.debug(f"Transforming v1 {dataset.filetype} file")
         dataset_etree = VERSION_1_TRANSFORMS[dataset.filetype](dataset_etree).getroot()
 
     parent_element_name = (

@@ -16,10 +16,10 @@ import zipfile
 from collections import defaultdict
 from datetime import datetime
 from io import StringIO
+from itertools import islice
 from textwrap import dedent
 from typing import Any, Iterator, Optional, OrderedDict
 
-import _csv
 import iatikit
 import requests
 import xmlschema
@@ -96,6 +96,16 @@ def create_activities_table():
                 """
             )
         )
+
+
+@functools.lru_cache
+def get_activities_schema() -> xmlschema.XMLSchema10:
+    return xmlschema.XMLSchema(
+        str(
+            pathlib.Path()
+            / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
+        )
+    )
 
 
 def get_standard(refresh=False):
@@ -228,20 +238,17 @@ def get_codelists_lookup():
                 ALL_CODELIST_LOOKUP[(path, codelist_value)] = value_name
 
 
-def save_converted_xml_to_csv(
-    dataset_etree: etree._Element,
-    csv_file: "_csv._writer",
-    dataset_name: str,
-    prefix: Optional[str] = None,
-    filename: Optional[str] = None,
-) -> None:
+def parse_activities_from_dataset(
+    dataset: iatikit.Dataset,
+) -> Iterator[tuple[dict[str, Any], list[xmlschema.XMLSchemaValidationError]]]:
+    try:
+        dataset_etree = dataset.etree.getroot()
+    except Exception:
+        logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
+        return
+
     transform = etree.XSLT(etree.parse(str(this_dir / "iati-activities.xsl")))
-    schema = xmlschema.XMLSchema(
-        str(
-            pathlib.Path()
-            / "__iatikitcache__/standard/schemas/203/iati-activities-schema.xsd"
-        )
-    )
+    schema = get_activities_schema()
 
     schema_dict = get_sorted_schema_dict()
 
@@ -262,16 +269,7 @@ def save_converted_xml_to_csv(
         activities_dict, error = xmlschema_to_dict_result
         activity_dict = activities_dict.get("iati-activity", [{}])[0]
 
-        csv_file.writerow(
-            [
-                prefix,
-                dataset_name,
-                filename,
-                str(error) if error else "",
-                version,
-                json.dumps(activity_dict),
-            ]
-        )
+        yield activity_dict, error
 
 
 def csv_file_to_db(csv_fd):
@@ -283,42 +281,45 @@ def csv_file_to_db(csv_fd):
         cur.copy_expert(copy_sql, csv_fd)
 
 
-def load_part(data: tuple[int, list[iatikit.Dataset]]) -> int:
-    bucket_num, datasets = data
+def load_dataset(dataset: iatikit.Dataset) -> None:
+    if dataset.filetype != "activity":
+        return
 
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        logger.debug(f"{bucket_num}, {tmpdirname}")
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "wt", newline="") as f:
-            csv_file = csv.writer(f)
+    if not dataset.data_path:
+        logger.warn(f"Dataset '{dataset}' not found")
+        return
 
-            for num, dataset in enumerate(datasets):
-                if num % 100 == 0:
-                    logger.debug(f"{bucket_num}, {num}")
+    path = pathlib.Path(dataset.data_path)
+    prefix, filename = path.parts[-2:]
 
-                if dataset.filetype != "activity":
-                    continue
-
-                if not dataset.data_path:
-                    logger.warn(f"Dataset '{dataset}' not found")
-                    continue
-
-                path = pathlib.Path(dataset.data_path)
-                prefix, filename = path.parts[-2:]
-
-                try:
-                    root = dataset.etree.getroot()
-                except Exception:
-                    logger.warning(f"Error parsing XML for dataset '{dataset.name}'")
-                    continue
-
-                save_converted_xml_to_csv(
-                    root, csv_file, dataset.name, prefix, filename
+    with get_engine().begin() as connection:
+        connection.execute(
+            insert(
+                table(
+                    "_all_activities",
+                    column("prefix"),
+                    column("dataset"),
+                    column("filename"),
+                    column("error"),
+                    column("version"),
+                    column("activity"),
                 )
-
-        with gzip.open(f"{tmpdirname}/out.csv.gz", "rt") as f:
-            csv_file_to_db(f)
-
-    return bucket_num
+            ).values(
+                [
+                    {
+                        "prefix": prefix,
+                        "dataset": dataset.name,
+                        "filename": filename,
+                        "error": "\n".join(
+                            [f"{error.reason} at {error.path}" for error in errors]
+                        ),
+                        "version": dataset.version,
+                        "activity": json.dumps(activity),
+                    }
+                    for activity, errors in parse_activities_from_dataset(dataset)
+                ]
+            )
+        )
 
 
 def create_database_schema():
@@ -339,18 +340,17 @@ def load(processes: int, sample: Optional[int] = None) -> None:
     create_database_schema()
     create_activities_table()
 
-    logger.info(f"Splitting data into {processes} buckets for loading")
-    buckets = defaultdict(list)
-    for num, dataset in enumerate(iatikit.data().datasets):
-        buckets[num % processes].append(dataset)
-        if sample and num >= sample - 1:
-            break
+    logger.info(
+        f"Loading {len(list(islice(iatikit.data().datasets, sample)))} datasets"
+    )
+    datasets_sample = islice(iatikit.data().datasets, sample)
 
-    logger.info("Loading registry data into database")
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-        for job in executor.map(load_part, buckets.items()):
-            logger.debug(f"Finished loading part {job}")
-            continue
+    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as executor:
+        futures = [
+            executor.submit(load_dataset, dataset) for dataset in datasets_sample
+        ]
+        concurrent.futures.wait(futures)
+    logger.info("Finished loading registry data into database")
 
 
 def process_registry() -> None:

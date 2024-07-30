@@ -180,7 +180,7 @@ def test_path_info():
         parent_keys_no_index,
         object_type,
         parent_keys,
-    ) = path_info(full_path, no_index_path)
+    ) = path_info(full_path, no_index_path, "activity")
 
     assert object_key == "result.12.indicator.3.period.0.actual.0"
     assert parent_keys_list == [

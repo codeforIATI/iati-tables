@@ -46,7 +46,7 @@ output_dir = os.environ.get("IATI_TABLES_OUTPUT", ".")
 
 schema = os.environ.get("IATI_TABLES_SCHEMA")
 
-s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
+s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "-")
 
 output_path = pathlib.Path(output_dir)
 
@@ -1584,6 +1584,8 @@ def upload_all():
                 ["s3cmd", "setacl", f"{s3_destination}{file}", "--acl-public"],
                 check=True,
             )
+    else:
+        logger.info("Skipping upload to S3")
 
 
 def run_all(

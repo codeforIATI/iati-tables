@@ -1240,8 +1240,14 @@ def transaction_breakdown():
 
 
 def sql_process():
-    augment_transaction()
-    transaction_breakdown()
+    try:
+        augment_transaction()
+        transaction_breakdown()
+    except Exception:
+        logger.error(
+            "Processing on the 'transaction' table failed, this is usually caused by the sample size being too small"
+        )
+        raise
 
 
 def export_stats():

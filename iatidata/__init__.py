@@ -364,7 +364,21 @@ def load(processes: int, sample: Optional[int] = None) -> None:
             executor.submit(load_dataset, dataset) for dataset in datasets_sample
         ]
         concurrent.futures.wait(futures)
-    logger.info("Finished loading datasets into database")
+
+    engine = get_engine()
+    with engine.begin() as connection:
+        activity_result = connection.execute(
+            text("SELECT COUNT(*) AS count FROM _raw_activity")
+        ).first()
+        logger.info(
+            f"Loaded {activity_result.count if activity_result else 0} activities into database"
+        )
+        organisation_result = connection.execute(
+            text("SELECT COUNT(*) AS count FROM _raw_organisation")
+        ).first()
+        logger.info(
+            f"Loaded {organisation_result.count if organisation_result else 0} organisations into database"
+        )
 
 
 def process_registry() -> None:

@@ -364,7 +364,21 @@ def load(processes: int, sample: Optional[int] = None) -> None:
             executor.submit(load_dataset, dataset) for dataset in datasets_sample
         ]
         concurrent.futures.wait(futures)
-    logger.info("Finished loading datasets into database")
+
+    engine = get_engine()
+    with engine.begin() as connection:
+        activity_result = connection.execute(
+            text("SELECT COUNT(*) AS count FROM _raw_activity")
+        ).first()
+        logger.info(
+            f"Loaded {activity_result.count if activity_result else 0} activities into database"
+        )
+        organisation_result = connection.execute(
+            text("SELECT COUNT(*) AS count FROM _raw_organisation")
+        ).first()
+        logger.info(
+            f"Loaded {organisation_result.count if organisation_result else 0} organisations into database"
+        )
 
 
 def process_registry() -> None:
@@ -818,6 +832,16 @@ def postgres_tables(drop_release_objects=False):
     if drop_release_objects:
         with get_engine().begin() as connection:
             connection.execute("DROP TABLE IF EXISTS _release_objects")
+
+    engine = get_engine()
+    with engine.begin() as connection:
+        tables = connection.execute(
+            text(
+                "SELECT table_name, rows FROM _tables ORDER BY table_order, table_name"
+            )
+        )
+        for table_name, rows in tables:
+            logger.info(f"There are {rows} rows in {table_name}")
 
 
 def augment_transaction():

@@ -833,6 +833,16 @@ def postgres_tables(drop_release_objects=False):
         with get_engine().begin() as connection:
             connection.execute("DROP TABLE IF EXISTS _release_objects")
 
+    engine = get_engine()
+    with engine.begin() as connection:
+        tables = connection.execute(
+            text(
+                "SELECT table_name, rows FROM _tables ORDER BY table_order, table_name"
+            )
+        )
+        for table_name, rows in tables:
+            logger.info(f"There are {rows} rows in {table_name}")
+
 
 def augment_transaction():
     logger.debug("Augmenting transaction table")

@@ -45,7 +45,7 @@ output_dir = os.environ.get("IATI_TABLES_OUTPUT", ".")
 
 schema = os.environ.get("IATI_TABLES_SCHEMA")
 
-s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "s3://iati/")
+s3_destination = os.environ.get("IATI_TABLES_S3_DESTINATION", "-")
 
 output_path = pathlib.Path(output_dir)
 
@@ -1271,8 +1271,14 @@ def transaction_breakdown():
 
 
 def sql_process():
-    augment_transaction()
-    transaction_breakdown()
+    try:
+        augment_transaction()
+        transaction_breakdown()
+    except Exception:
+        logger.error(
+            "Processing on the 'transaction' table failed, this is usually caused by the sample size being too small"
+        )
+        raise
 
 
 def export_stats():
@@ -1615,6 +1621,8 @@ def upload_all():
                 ["s3cmd", "setacl", f"{s3_destination}{file}", "--acl-public"],
                 check=True,
             )
+    else:
+        logger.info("Skipping upload to S3")
 
 
 def run_all(

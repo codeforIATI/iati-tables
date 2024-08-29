@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import traceback
 import zipfile
 from collections import defaultdict
 from datetime import datetime
@@ -305,7 +306,9 @@ def load_dataset(dataset: iatikit.Dataset) -> None:
     path = pathlib.Path(dataset.data_path)
     prefix, filename = path.parts[-2:]
 
-    with get_engine().begin() as connection:
+    engine = get_engine()
+
+    with engine.begin() as connection:
         connection.execute(
             insert(
                 table(
@@ -333,6 +336,8 @@ def load_dataset(dataset: iatikit.Dataset) -> None:
                 ]
             )
         )
+
+    engine.dispose()
 
 
 def create_database_schema():
@@ -363,6 +368,12 @@ def load(processes: int, sample: Optional[int] = None) -> None:
             executor.submit(load_dataset, dataset) for dataset in datasets_sample
         ]
         concurrent.futures.wait(futures)
+        # We have to get the result (even though we don't use it) in order to get the exceptions
+        for future in futures:
+            try:
+                future.result()
+            except Exception:
+                print(traceback.format_exc())
 
     engine = get_engine()
     with engine.begin() as connection:

@@ -114,7 +114,7 @@ Start the development server:
 yarn serve
 ```
 
-Or, build and view the site in production mode:
+Or, build and view the site in production mode (http.server is not suitable for actual production):
 
 ```
 yarn build

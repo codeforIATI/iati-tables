@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 import traceback
 import zipfile
 from collections import defaultdict
@@ -27,17 +26,22 @@ from fastavro import parse_schema, writer
 from google.cloud import bigquery
 from google.cloud.bigquery.dataset import AccessEntry
 from google.oauth2 import service_account
+from logfmter import Logfmter
 from lxml import etree
 from sqlalchemy import Engine, column, create_engine, insert, table, text
 
 from iatidata import sort_iati
 
+formatter = Logfmter(
+    keys=["asctime", "levelname", "name", "message"],
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
+    handlers=[handler],
 )
-logging.Formatter.converter = time.gmtime
 logger = logging.getLogger(__name__)
 
 this_dir = pathlib.Path(__file__).parent.resolve()

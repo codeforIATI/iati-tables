@@ -50,6 +50,8 @@ jmespath==1.0.1
     # via
     #   boto3
     #   botocore
+logfmter==0.0.8
+    # via -r requirements.in
 lxml==5.1.0
     # via
     #   -r requirements.in

@@ -108,6 +108,8 @@ jmespath==1.0.1
     #   botocore
 livereload==2.6.3
     # via sphinx-autobuild
+logfmter==0.0.8
+    # via -r requirements.txt
 lxml==5.1.0
     # via
     #   -r requirements.txt

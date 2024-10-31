@@ -262,10 +262,14 @@ def parse_dataset(
         logger.debug(f"Error parsing XML for dataset '{dataset.name}'")
         return
 
+    print('dataset_etree', dataset_etree)
     version = dataset_etree.get("version", "1.01")
+    print('dataset_etree version', version)
+
     if version.startswith("1"):
         logger.debug(f"Transforming v1 {dataset.filetype} file")
         dataset_etree = VERSION_1_TRANSFORMS[dataset.filetype](dataset_etree).getroot()
+        print('dataset_etree in version starts with 1', dataset_etree)
 
     parent_element_name = (
         "iati-organisations"
@@ -303,7 +307,9 @@ def load_dataset(dataset: iatikit.Dataset) -> None:
         logger.warn(f"Dataset '{dataset}' not found")
         return
 
+    print('dataset data_path', dataset.data_path)
     path = pathlib.Path(dataset.data_path)
+    print('dataset', path)
     prefix, filename = path.parts[-2:]
 
     engine = get_engine()

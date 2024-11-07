@@ -277,20 +277,25 @@ def parse_dataset(
         else "iati-activities"
     )
     child_element_name = f"iati-{dataset.filetype}"
-    for child_element in dataset_etree.findall(child_element_name):
-        sort_iati_element(child_element, get_sorted_schema_dict())
-        parent_element = etree.Element(parent_element_name, version=version)
-        parent_element.append(child_element)
+    print('child_element_name', child_element_name)
+    if 'zoa-activities.xml' in dataset:
+        print('zoa-activities.xml return')
+        return
+    else:
+        for child_element in dataset_etree.findall(child_element_name):
+            sort_iati_element(child_element, get_sorted_schema_dict())
+            parent_element = etree.Element(parent_element_name, version=version)
+            parent_element.append(child_element)
 
-        xmlschema_to_dict_result: tuple[dict[str, Any], list[Any]] = xmlschema.to_dict(
-            parent_element,  # type: ignore
-            schema=get_xml_schema(dataset.filetype),
-            validation="lax",
-            decimal_type=float,
-        )
-        parent_dict, error = xmlschema_to_dict_result
-        child_dict = parent_dict.get(child_element_name, [{}])[0]
-        yield child_dict, error
+            xmlschema_to_dict_result: tuple[dict[str, Any], list[Any]] = xmlschema.to_dict(
+                parent_element,  # type: ignore
+                schema=get_xml_schema(dataset.filetype),
+                validation="lax",
+                decimal_type=float,
+            )
+            parent_dict, error = xmlschema_to_dict_result
+            child_dict = parent_dict.get(child_element_name, [{}])[0]
+            yield child_dict, error
 
 
 def csv_file_to_db(csv_fd):

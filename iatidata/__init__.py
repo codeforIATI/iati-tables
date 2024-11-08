@@ -278,7 +278,7 @@ def parse_dataset(
     )
     child_element_name = f"iati-{dataset.filetype}"
     print('child_element_name', child_element_name)
-    if 'zoa-activities.xml' in dataset:
+    if 'zoa-activities.xml' in dataset.data_path:
         print('zoa-activities.xml return')
         return
     else:

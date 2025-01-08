@@ -5,14 +5,201 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <title><%= htmlWebpackPlugin.options.title %></title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@latest/css/materialdesignicons.min.css">
+    <link
+      href="https://cdn.jsdelivr.net/npm/iati-design-system@3.5.0/dist/css/iati.min.css"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/iati-design-system@3.5.0/dist/js/iati.js"></script>
   </head>
   <body>
+    <!-- Header from https://iati.github.io/design-system/?path=/docs/components-header--docs -->
+    <div class="iati-mobile-nav js-iati-mobile-nav ">
+    <div class="iati-mobile-nav__overlay js-iati-mobile-overlay"></div>
+    <nav class="iati-mobile-nav__menu">
+      <div class="iati-mobile-nav__header">
+        <h2 class="iati-mobile-nav__label">Menu</h2>
+
+  <button class="iati-menu-toggle iati-menu-toggle--close js-iati-menu-toggle-close">
+    <span>Close</span>
+  </button>
+
+      </div>
+      <ul class="">
+        <li class="iati-mobile-nav__item">
+              <a href="#" class="iati-mobile-nav__link">Tool Home</a>
+            </li><li class="iati-mobile-nav__item">
+              <a href="#" class="iati-mobile-nav__link">About</a>
+            </li>
+      </ul>
+      <ul class="">
+        <li class="iati-mobile-nav__item">
+          <a href="https://iatistandard.org/en/about/" class="iati-mobile-nav__link">About IATI</a>
+        </li>
+        <li class="iati-mobile-nav__item">
+          <a href="https://iatistandard.org/en/using-data/" class="iati-mobile-nav__link">Use Data</a>
+        </li>
+        <li class="iati-mobile-nav__item">
+          <a href="https://iatistandard.org/en/guidance/publishing-data/" class="iati-mobile-nav__link">
+            Publish Data
+          </a>
+        </li>
+        <li class="iati-mobile-nav__item">
+          <a href="https://iatistandard.org/guidance/get-support/" class="iati-mobile-nav__link">
+            Contact
+          </a>
+        </li>
+        <li class="iati-mobile-nav__item">
+          <a href="#" class="iati-mobile-nav__link">Help Docs</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+
+  <header class="iati-header">
+    <div class="iati-header__section iati-header__section--first">
+      <div class="iati-header__container">
+
+<a href="https://iatistandard.org/" aria-label="Go to IATI homepage">
+  <img class="iati-header__logo" alt="" src="https://iati.github.io/design-system/assets/logo-colour-Bag5CeA4.svg">
+</a>
+
+        <nav class="iati-header__general-nav">
+          <ul class="iati-piped-list">
+            <li>
+              <a href="https://iatistandard.org/en/about/">About IATI</a>
+            </li>
+            <li>
+              <a href="https://iatistandard.org/en/using-data/">Use Data</a>
+            </li>
+            <li>
+              <a href="https://iatistandard.org/en/guidance/publishing-data/">
+                Publish Data
+              </a>
+            </li>
+            <li>
+              <a href="https://iatistandard.org/guidance/get-support/">
+                Contact
+              </a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+    <div class="iati-header__section iati-header__section--last iati-brand-background">
+      <div class="iati-header__container iati-brand-background__content">
+        <div class="iati-header__actions">
+
+          <a href="https://iati-tables.readthedocs.io/">
+            <button class="iati-button iati-button--light hide--mobile-nav">
+              <span>Help Docs</span>
+              <i class="iati-icon iati-icon--info"></i>
+            </button>
+          </a>
+
+        </div>
+
+  <div class="iati-header-title">
+    <p class="iati-header-title__eyebrow">IATI Tools</p>
+    <p class="iati-header-title__heading">Tables</p>
+  </div>
+
+        <div class="iati-header__nav">
+
+  <nav>
+    <ul class="iati-tool-nav">
+      <li><a href="#" class="iati-tool-nav-link">Tables</a></li>
+    </ul>
+  </nav>
+
+        </div>
+      </div>
+    </div>
+  </header>
+
+    <main class="iati-main">
+    <!-- Body -->
     <noscript>
       <strong>We're sorry but <%= htmlWebpackPlugin.options.title %> doesn't work properly without JavaScript enabled. Please enable it to continue.</strong>
     </noscript>
     <div id="app"></div>
     <!-- built files will be auto injected -->
+    </main>
+
+    <!-- Footer -->
+    <footer class="iati-footer iati-brand-background">
+      <div class="iati-brand-background__content">
+    <div class="iati-footer__section iati-footer__section--first">
+      <div class="iati-footer__container">
+        <div class="iati-footer-block">
+          <h2 class="iati-footer-block__title">Useful Links</h2>
+          <div class="iati-footer-block__content">
+            <ul>
+              <li><a href="https://iati-tables.readthedocs.io/">Help Docs</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="iati-footer-block">
+            <h2 class="iati-footer-block__title iati-footer-block__title--centered">
+              Sign Up to Our Newsletter
+            </h2>
+            <div class="iati-footer-block__content">
+              <form class="iati-newsletter-form">
+                <div class="iati-newsletter-form__item">
+                  <label for="newsletter-email" class="iati-newsletter-form__label">Email</label>
+                  <input id="newsletter-email" type="text" class="iati-newsletter-form__input">
+                </div>
+                <div class="iati-newsletter-form__item">
+                  <label for="newsletter-firstname" class="iati-newsletter-form__label">First name</label>
+                  <input id="newsletter-firstname" type="text" class="iati-newsletter-form__input">
+                </div>
+                <div class="iati-newsletter-form__item">
+                  <label for="newsletter-surname" class="iati-newsletter-form__label">Surname</label>
+                  <input id="newsletter-surname" type="text" class="iati-newsletter-form__input">
+                </div>
+                <div class="iati-newsletter-form__item">
+                  <button class="iati-newsletter-form__submit iati-button iati-button--submit">
+                    Subscribe
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    <div class="iati-footer__section iati-footer__section--last">
+      <div class="iati-footer__container">
+        <nav>
+          <ul class="iati-piped-list iati-footer__legal-nav">
+            <li><a href="https://iatistandard.org/en/privacy-policy/">Privacy</a></li><li><a href="https://iatistandard.org/en/data-removal/">Data removal</a></li><li><span>© Copyright IATI 2024. All rights reserved</span></li>
+          </ul>
+        </nav>
+
+      <div class="iati-country-switcher">
+        <label for="iati-country-switcher" class="iati-country-switcher__label">Choose your language</label>
+        <select id="iati-country-switcher" class="iati-country-switcher__control">
+          <option>English</option>
+          <option>French</option>
+        </select>
+      </div>
+
+        <div class="iati-footer__social">
+          <a href="https://www.linkedin.com/company/international-aid-transparency-initiative/" aria-label="LinkedIn">
+            <i class="iati-icon iati-icon--linkedin"></i>
+          </a>
+          <a href="https://x.com/IATI_aid" aria-label="X">
+            <i class="iati-icon iati-icon--x"></i>
+          </a>
+          <a href="https://www.youtube.com/channel/UCAVH1gcgJXElsj8ENC-bDQQ" aria-label="YouTube">
+            <i class="iati-icon iati-icon--youtube"></i>
+          </a>
+          <a href="https://www.facebook.com/IATIaid/" aria-label="Facebook">
+            <i class="iati-icon iati-icon--facebook"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+    </footer>
   </body>
 </html>

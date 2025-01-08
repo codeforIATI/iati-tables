@@ -1,13 +1,23 @@
 <template>
   <v-container>
     <v-row :dense=true>
+      <v-col xl=4 cols=12>
+        <v-card elevation="0" color="white">
+          <v-card-title >
+            About
+          </v-card-title >
+          <v-card-text >
+            <p>IATI data has been transformed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
+            <p><b>Last Update:</b> {{lastUpdated}}</p>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+    <v-row :dense=true>
       <v-col cols=12>
         <v-card elevation="0" color="white">
           <v-card-title class="capitalize-source text-h4">
             <v-row>
-              <v-col xl=2 lg=3>
-                IATI Tables
-              </v-col>
               <v-col xl=9 lg=9 cols=12>
                 <v-chip
                   class="ml-3"
@@ -59,29 +69,6 @@
               </v-col>
             </v-row>
           </v-card-title>
-        </v-card>
-      </v-col>
-    </v-row>
-    <v-row :dense=true>
-      <v-col xl=4 cols=12>
-        <v-card elevation="0" color="white">
-          <v-card-title >
-            About
-          </v-card-title >
-          <v-card-text >
-            <p>IATI data has been transformed into tables in order to make it easier to work with relational tools.  Below is the list of tables that have been created. Click on them to see the fields and types within.</p>
-            <p><b>Last Update:</b> {{lastUpdated}}</p>
-          </v-card-text>
-        </v-card>
-      </v-col>
-      <v-col xl=4 cols=12>
-        <v-card elevation="0" color="white">
-          <v-card-title >
-            Documentation
-          </v-card-title >
-          <v-card-text >
-            <p>Please go to <a href="https://iati-tables.readthedocs.io/">IATI Tables Documentation</a>.</p>
-          </v-card-text>
         </v-card>
       </v-col>
     </v-row>

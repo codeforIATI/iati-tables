@@ -905,6 +905,7 @@ def augment_transaction():
                 t._link,
                 case
                     when coalesce(value_currency, activity.defaultcurrency) = 'USD' then value
+                    when rate = 0 then null
                     else value / rate
                 end value_usd
             from
